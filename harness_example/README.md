@@ -1,5 +1,7 @@
 # 中文 Harness 学习示例
 
+只看 Pydantic AI 核心 Agent 的常用 API，可先运行并阅读 [核心 Agent 中文示例](../pydantic_agent_example/README.md)。
+
 例子入口是 [main.py](main.py)，直接运行即可。默认使用本机 Ollama 的 `qwen2.5:14b-instruct-q4_K_M`，主代理和审阅子代理都进行真实本地推理。任务和模拟回答固定，不等待终端输入。可通过 `OLLAMA_MODEL`、`OLLAMA_BASE_URL` 环境变量切换模型和地址。
 
 这个例子用“读取学习资料并写总结”串起 **20 个 Harness 能力**，覆盖大部分通用能力类别。它没有启用所有外部服务集成，也不是把 20 个能力都变成了模型可以调用的工具：有些能力通过生命周期钩子自动工作。
