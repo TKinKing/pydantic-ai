@@ -3,15 +3,15 @@
 import asyncio  # 标准库：驱动 Agent、工具和存储所使用的异步接口。
 import json  # 标准库：保存实际给模型看的工具定义，便于学习 JSON Schema。
 from dataclasses import dataclass, field, replace  # 依赖容器，以及不修改原始工具定义的复制操作。
-from os import name as platform_name  # 判断当前 Python 所在平台，提前解释本地工作区限制。
+from os import getenv, name as platform_name  # 判断当前 Python 所在平台，提前解释本地工作区限制。
 from pathlib import Path  # 所有示例输出都按脚本位置定位，不依赖终端当前目录。
 
-from offline_model import make_offline_model  # 本目录的固定教学模型，替代付费模型的决策过程。
 from tool_descriptions import TOOL_DESCRIPTIONS  # 本目录的中文工具说明，逐个说明用途和参数。
 
 from pydantic_ai import Agent, ModelRetry, RunContext  # 核心执行器、可恢复工具错误和依赖上下文。
 from pydantic_ai.capabilities import LocalWorkspace, PrepareTools  # 核心能力：工作区，以及发送前修改工具定义。
-from pydantic_ai.models.test import TestModel  # 子代理用固定输出演示委派流程。
+from pydantic_ai.models.openai import OpenAIChatModel  # 使用 Ollama 的 OpenAI 兼容接口。
+from pydantic_ai.providers.ollama import OllamaProvider  # 本地 Ollama 不需要 API 密钥。
 from pydantic_ai.tools import ToolDefinition  # 核心工具定义包含名称、描述和参数 JSON Schema。
 from pydantic_ai.usage import UsageLimits  # 核心硬预算：超过请求上限时终止运行。
 from pydantic_ai_harness import (  # Harness 能力按需导入；不要用星号导入全部可选集成。
@@ -47,6 +47,9 @@ from pydantic_ai_harness.planning import SqlitePlanStore  # 计划单独保存�
 from pydantic_ai_harness.step_persistence import FileStepStore, continue_run  # 文件快照和恢复消息历史的辅助函数。
 from pydantic_ai_harness.system_reminders import Reminder  # 配置提醒内容和发送间隔。
 from pydantic_ai_harness.tool_output_limits import Band, Truncate  # 按结果长度选择截断策略。
+
+OLLAMA_MODEL = getenv('OLLAMA_MODEL', 'qwen2.5:14b-instruct-q4_K_M')  # 默认使用本机已安装的工具调用模型。
+OLLAMA_BASE_URL = getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')  # WSL 可通过环境变量指定 Windows 地址。
 
 WORKSPACE = Path(__file__).resolve().parent / 'output' / 'demo'  # 固定学习目录；重复运行复用计划、记忆和快照。
 
@@ -97,12 +100,12 @@ def tool_guard(call: ToolCallInfo) -> GuardrailResult:  # 工具执行前可读�
 def build_agent() -> tuple[Agent[LearningDeps, str], FileStepStore]:  # 无需传参，所有示例配置直接写在函数中。
     """用固定模型、固定工作区和固定回答组装学习助手."""  # 阅读重点是 capabilities 列表。
     store = FileStepStore(WORKSPACE / 'steps')  # 快照存储使用宿主机路径，不随 workspace 后端自动迁移。
-    reviewer_model = TestModel(  # 离线子代理只负责演示委派机制。
-        call_tools=[],  # 子代理不调用工具。
-        custom_output_text='检查通过：Agent 管执行循环，Harness 管可选能力。',  # 固定回答不代表真实审阅。
-    )  # 离线审阅。
+    model = OpenAIChatModel(  # 主代理和子代理都通过本地 Ollama 推理。
+        OLLAMA_MODEL,
+        provider=OllamaProvider(base_url=OLLAMA_BASE_URL),  # 使用同一个模型，避免加载两份权重。
+    )  # 工具调用仍由 Agent 校验和执行。
     reviewer = Agent(  # 子代理是另一个普通核心 Agent，有自己的消息历史。
-        reviewer_model,  # 固定使用离线子代理，无需选择模型或配置密钥。
+        model,  # 子代理也使用真实本地模型审阅。
         name='reviewer',  # 主代理用此名称选择委派对象。
         instructions='用中文检查任务中的概念是否正确，只返回简短意见。',  # 子代理只负责概念审阅。
     )  # 子代理未获得文件或 Shell 工具，所以这里只能返回文字意见。
@@ -118,7 +121,7 @@ def build_agent() -> tuple[Agent[LearningDeps, str], FileStepStore]:  # 无需�
         return AskUserResponse(answers=tuple(answers))  # 回答按 header 与问题匹配。
 
     agent = Agent(  # 真正的运行入口仍然是 pydantic_ai.Agent。
-        make_offline_model(),  # 固定离线模型按剧本调用工具；每次构造从第一步开始，不需要密钥。
+        model,  # 本地模型自主选择工具，不再按固定剧本响应。
         deps_type=LearningDeps,  # 明确工具可访问的依赖类型。
         instructions='用中文学习 Harness：读取 lesson.txt，加载 study-notes 技能，制定计划并执行。最终给出总结。',  # 主目标。
         capabilities=[  # 组合二十个 Harness 能力，以及两个核心能力。
@@ -209,6 +212,7 @@ async def main() -> None:  # 应用层负责目录、依赖、Agent 生命周期
         '读取 lesson.txt；区分核心与 Harness；检查概念后写报告、保存记忆并完成计划。\n',  # 模型按需读取的技能正文。
         encoding='utf-8',  # 在 Windows 上也保持中文编码一致。
     )  # 技能文件写入完成。
+    print(f'本地模型：{OLLAMA_MODEL}；接口：{OLLAMA_BASE_URL}')  # 便于确认连接的 Ollama 实例。
     agent, store = build_agent()  # 直接构造固定配置的示例，不传入模型、目录或模式开关。
     deps = LearningDeps()  # 每次运行独立的依赖对象。
     async with agent:  # 管理工具集、工作区等需要释放的异步资源。
@@ -216,7 +220,7 @@ async def main() -> None:  # 应用层负责目录、依赖、Agent 生命周期
             '学习 Harness，使用可用工具完成资料阅读、计划、提问、审阅、记忆和 report.md，并给出总结。',  # 任务输入。
             deps=deps,  # 用户身份来自应用，工具通过 ctx.deps 使用。
             usage_limits=UsageLimits(request_limit=30, tool_calls_limit=30),  # 真正限制请求与工具调用，防止无限循环。
-        )  # 离线模型按固定剧本覆盖工具，整个示例无需输入。
+        )  # 本地模型自主执行；提问仍使用模拟回答。
     (WORKSPACE / 'messages.json').write_bytes(result.all_messages_json())  # 保存核心消息格式，观察工具调用与返回。
     definitions = {  # 导出实际提供给模型的工具目录。
         name: {'说明': tool.description, '参数模式': tool.parameters_json_schema}  # 每个工具的中文说明和参数。
