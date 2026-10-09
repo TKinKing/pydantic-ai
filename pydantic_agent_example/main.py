@@ -1,6 +1,5 @@
-"""只使用 Pydantic AI 核心的中文 Agent 示例；按 mode 分别观察运行入口."""
+"""只使用 Pydantic AI 核心的中文 Agent 示例；直接运行时依次展示五种运行入口."""
 
-import argparse  # 选择要观察的运行方式，默认运行普通异步请求。
 import asyncio  # 驱动异步运行入口。
 from dataclasses import dataclass  # 应用依赖由代码提供，不交给模型生成。
 from os import getenv  # 支持切换本地 Ollama 模型和地址。
@@ -159,28 +158,19 @@ async def run_steps(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) -
         print('逐步运行结果：', agent_run.result.output.model_dump())
 
 
-async def main(mode: str) -> None:  # 异步入口只运行用户选择的演示，避免重复模型请求。
-    """执行所选的异步演示模式."""
-    agent = build_agent(require_tools=mode == 'run')
+async def main() -> None:  # 固定顺序执行异步示例，无需命令行参数。
+    """依次展示普通运行、结构化流式输出、事件流和逐步执行."""
     deps = LearningDeps()
-    if mode == 'run':
-        await run_normal(agent, deps)
-    elif mode == 'stream':
-        await run_stream(agent, deps)
-    elif mode == 'events':
-        await run_events(agent, deps)
-    else:
-        await run_steps(agent, deps)
+    await run_normal(build_agent(require_tools=True), deps)  # 先验证两种工具的真实执行。
+    agent = build_agent(require_tools=False)  # 流式演示聚焦观察输出，不强制先调用工具。
+    await run_stream(agent, deps)
+    await run_events(agent, deps)
+    await run_steps(agent, deps)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Pydantic AI 核心 Agent 的中文学习示例。')
-    parser.add_argument('mode', nargs='?', choices=['run', 'sync', 'stream', 'events', 'iter'], default='run')
-    selected = parser.parse_args().mode
-    if selected == 'sync':
-        result = build_agent(require_tools=False).run_sync(
-            '解释 Agent 和工具并总结。', deps=LearningDeps()
-        )  # 同步入口。
-        print('同步结果：', result.output.model_dump())
-    else:
-        asyncio.run(main(selected))
+    result = build_agent(require_tools=False).run_sync(
+        '解释 Agent 和工具并总结。', deps=LearningDeps()
+    )  # 同步入口必须在 asyncio.run() 启动事件循环之前执行。
+    print('同步结果：', result.output.model_dump())
+    asyncio.run(main())

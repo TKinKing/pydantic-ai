@@ -11,5 +11,5 @@ if (-not $baseUrl) {
     }
     $baseUrl = "http://$($Matches[1]):11434/v1"
 }
-& $wslExe --cd $repoDir -- env "OLLAMA_MODEL=$modelName" "OLLAMA_BASE_URL=$baseUrl" $pythonExe -u pydantic_agent_example/main.py @args
+& $wslExe --cd $repoDir -- env "OLLAMA_MODEL=$modelName" "OLLAMA_BASE_URL=$baseUrl" $pythonExe -u pydantic_agent_example/main.py
 exit $LASTEXITCODE
