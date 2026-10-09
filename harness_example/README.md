@@ -1,6 +1,6 @@
 # 中文 Harness 学习示例
 
-先读 [quickstart.py](quickstart.py)，再读 [main.py](main.py) 的 `build_agent()`。
+例子入口是 [main.py](main.py)，直接运行即可。模型、任务、工作目录和模拟回答全部写死在代码中，没有命令行参数，也不等待终端输入。
 
 这个例子用“读取学习资料并写总结”串起 **20 个 Harness 能力**，覆盖大部分通用能力类别。它没有启用所有外部服务集成，也不是把 20 个能力都变成了模型可以调用的工具：有些能力通过生命周期钩子自动工作。
 
@@ -54,7 +54,7 @@ python3 -m venv ~/.cache/pydantic-ai-harness-learning-venv # 创建独立学习�
 | 概念 | 在 Pydantic AI 中的位置 | 本例对应 |
 | --- | --- | --- |
 | `Agent` | 核心运行时，管理模型请求、工具执行、重试、消息历史和输出 | `build_agent()` 创建的主代理 |
-| `Model` | 核心模型接口，适配供应商或本地测试函数 | `FunctionModel`、`TestModel`，或 `--model` 选择的真实模型 |
+| `Model` | 核心模型接口，适配供应商或本地测试函数 | 写死在代码中的 `FunctionModel` 和 `TestModel` |
 | Capability | 组合工具、指令与生命周期钩子的核心抽象 | Harness 实现的 `Memory`、`Planning` 等 |
 | Tool / Toolset | 模型可调用的函数与工具集合；由核心校验参数并执行 | `read_file`、`write_plan`、`learning_progress` |
 | Hook | 在运行、模型请求、工具执行等时机介入 | 输入护栏、输出限长、快照保存等自动行为 |
@@ -79,7 +79,7 @@ python3 -m venv ~/.cache/pydantic-ai-harness-learning-venv # 创建独立学习�
 | `Skills` | 先发现技能，再按需加载正文 | 实际调用 `load_capability(id='study-notes')` |
 | `Planning` | 给模型一份可更新的任务计划 | 实际写入计划、完成计划、读回；数据在 `plan.db` |
 | `SystemReminders` | 每四次模型请求追加一次中文提醒 | 提醒作用于当前请求，不应在持久历史中不断累积 |
-| `AskUser` | 验证问题与回答的结构，连接人机界面 | 离线明确打印“模拟回答”；真实模式会等待终端输入 |
+| `AskUser` | 验证问题与回答的结构，连接人机界面 | 固定选择第一项并打印“模拟回答”，不等待输入 |
 | `SubAgents` | 将独立子任务委派给另一个 Agent | 实际运行 `reviewer` 子代理；离线审阅意见是固定测试文本 |
 | `ConversationSearch` | 从持久化快照找回过去细节 | 实际搜索当前对话中的 `Harness`，与长期笔记搜索区分 |
 | `ToolGuardrail` | 真正执行工具前检查调用 | 允许写 `report.md`；拒绝其他写入目标与记忆删除 |
@@ -106,7 +106,7 @@ python3 -m venv ~/.cache/pydantic-ai-harness-learning-venv # 创建独立学习�
 
 ## 查看运行结果
 
-每次运行使用新的 `output/<随机编号>/`，不会覆盖此前结果。此目录已在示例自己的 `.gitignore` 中排除。
+每次运行都使用固定目录 `output/demo/`。报告、输入资料、消息导出和工具目录会覆盖更新，计划更新为本次状态，长期记忆与运行快照保留。此目录已在示例自己的 `.gitignore` 中排除。
 
 | 产物 | 含义 |
 | --- | --- |
@@ -119,19 +119,13 @@ python3 -m venv ~/.cache/pydantic-ai-harness-learning-venv # 创建独立学习�
 | `skills/study-notes/SKILL.md` | 本例 Agent 可以按需加载的中文技能 |
 | `AGENTS.md`、`lesson.txt` | 本例工作区的说明和输入资料 |
 
-这里每次都使用新的工作目录，所以不会自动读到上一次演示的记忆。要学习跨运行复用，应让两次 Agent 运行指向同一个工作区及存储，而不是误以为 `Memory` 会自动搜索所有历史目录。
+重复运行会复用同一个工作区，所以 `Memory` 能读到上一次演示保存的笔记。固定剧本每次都会追加同一条学习结论；实际应用可使用 `old_text` 更新既有笔记。
 
 `continue_run()` 只读回可继续使用的消息列表，不会自动恢复 Python 局部变量、工作区文件或所有能力状态，也不会保证外部副作用恰好执行一次。真实模型的下一轮可以把读回的 `history` 传给 `agent.run(..., message_history=history)`；离线剧本会从第一步重演，所以不要用它验证自主续接能力。
 
-## 切换真实模型
+## 修改示例配置
 
-综合示例接受 `--model provider:model`。先在同一个 Linux/WSL 虚拟环境中安装相应供应商的可选依赖，再按该供应商文档设置环境变量。不要在代码、报告、工具参数或提交中写密钥。
-
-```bash
-~/.cache/pydantic-ai-harness-learning-venv/bin/python harness_example/main.py --model "$HARNESS_MODEL" # 先将 HARNESS_MODEL 设为你有权限使用的 provider:model 标识。
-```
-
-真实模式会进行付费或本地模型请求，工具选择由模型决定，不保证用遍所有组件；遇到 `AskUser` 时需在终端输入答案。当前验证覆盖离线工具流程，没有调用真实模型服务。
+直接编辑 `main.py`：`WORKSPACE` 是固定输出目录，`build_agent()` 中写死主代理和子代理模型，`answer_user()` 固定选择第一项，`main()` 中写死任务。框架要求的工具参数与钩子签名仍然保留，它们由 Agent 内部传递，不是运行前需要输入的配置。
 
 ## 本例没有启用的组件
 
