@@ -13,7 +13,8 @@
 ## 阅读顺序
 
 1. `LearningDeps` 与 `StudyNote`：应用传入的依赖和经过 Pydantic 校验的最终答案。
-2. `build_agent()`：配置模型、静态与动态指令、两种工具、`ToolOutput` 和输出校验器。
+2. `LearningCapability`：通过 `before_run` 和 `before_model_request` 观察运行生命周期。
+3. `build_agent()`：配置模型、静态与动态指令、两种工具、toolset、capabilities、`ToolOutput` 和输出校验器。
 3. 文件末尾的 `run_sync()`：同步入口先运行，因为它不能在已有事件循环中调用。
 4. `run_normal()`：使用 `run()`、`UsageLimits`、`all_messages()` 和 `new_messages()` 继续对话；校验两种工具确实执行，并计算 `1/2`。
 5. `run_stream()`、`run_events()`、`run_steps()`：依次展示结构化流式输出、事件流和节点遍历。
@@ -21,3 +22,25 @@
 每种运行方式都会发送新的本地模型请求；一次完整执行会运行全部五种方式，因此会有多次模型推理。模型可能选择不同工具调用顺序；`run()` 部分要求真实工具返回，其他部分专门观察运行接口。`run_stream()` 收到首次最终输出后就结束，不适合用这个入口强制模型先完成其他工具调用；需要观察完整工具流程时使用 `run_stream_events()` 或 `iter()`。`ModelRetry` 可要求模型修正工具参数或最终答案，但流式输出已经开始后无法重试。
 
 单个示例无法覆盖 Pydantic AI 所有专用 API；这里覆盖日常构建 Agent 最常用的部分。更多内容见仓库中的 [Agent 文档](../docs/agent.md)、[工具文档](../docs/tools.md)、[输出文档](../docs/output.md)和[消息历史文档](../docs/message-history.md)。
+
+## 常用组件在哪里
+
+| 组件 | 示例位置与作用 |
+| --- | --- |
+| 模型与 Provider | `OpenAIChatModel` + `OllamaProvider`，连接本地模型 |
+| Agent 配置 | `name`、`model_settings`、`retries`，配置名称、采样与重试 |
+| 依赖注入 | `deps_type=LearningDeps` 声明类型，`deps=` 传实例，`ctx.deps` 读取 |
+| 静态与动态指令 | `instructions=` 与 `agent.instructions(...)`，提供任务和学习者信息 |
+| 普通工具 | `agent.tool_plain(...)` 注册 `explain_concept`，参数由模型填写 |
+| 带上下文工具 | `agent.tool(...)` 注册 `learning_progress`，应用提供 `RunContext` |
+| 工具集合 | `FunctionToolset` 注册 `study_checklist`，通过 `toolsets=` 接入 Agent |
+| capabilities / caps | `capabilities=[LearningCapability()]`，框架在生命周期节点调用钩子 |
+| 结构化输出 | `ToolOutput(StudyNote)` + Pydantic 字段校验 |
+| 业务校验与重试 | `agent.output_validator(...)` + `ModelRetry`，要求模型修正答案或工具参数 |
+| 预算与用量 | `UsageLimits` 限制请求与工具调用，`result.usage` 查看用量 |
+| 消息历史 | `message_history`、`all_messages()`、`new_messages()`，延续对话 |
+| 运行入口 | `run_sync`、`run`、`run_stream`、`run_stream_events`、`iter` |
+
+工具由模型选择调用；capability 钩子由框架调用。终端中的 `[tool_plain]`、`[tool]`、`[toolset]` 和 `[capability]` 会显示实际执行位置。普通运行的输出校验器要求三个工具均已成功返回，避免只注册工具却没有执行。
+
+流式演示不强制先完成工具调用；capability 仍然执行。MCP、内置搜索、多模态、延迟工具审批和持久化执行需要额外环境或专用业务场景，本示例不把它们放入默认运行链路。

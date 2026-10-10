@@ -7,10 +7,13 @@ from os import getenv  # 支持切换本地 Ollama 模型和地址。
 from pydantic import BaseModel, Field  # 最终答案采用有类型的结构化输出。
 
 from pydantic_ai import Agent, AgentRunResultEvent, ModelRetry, RunContext  # Agent 核心 API。
+from pydantic_ai.capabilities import AbstractCapability  # capabilities（简称 caps）扩展运行生命周期。
 from pydantic_ai.messages import ModelRequest, ToolReturnPart  # 检查教学工具是否真正执行并返回。
+from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel  # Ollama 提供 OpenAI 兼容接口。
 from pydantic_ai.output import ToolOutput  # 用工具调用承载最终结构，适配本地模型。
 from pydantic_ai.providers.ollama import OllamaProvider  # 连接本地 Ollama。
+from pydantic_ai.toolsets import FunctionToolset  # 把一组可复用工具作为组件注册。
 from pydantic_ai.usage import UsageLimits  # 限制一次运行的请求和工具调用。
 
 
@@ -28,18 +31,43 @@ class StudyNote(BaseModel):  # output_type 告诉 Agent 最终答案应符合这
     summary: str = Field(description='包含 Agent 与工具关系的中文总结')  # 由校验器再检查业务要求。
 
 
+class LearningCapability(AbstractCapability[LearningDeps]):
+    """自定义 capability：观察运行开始及每次模型请求，不是模型调用的工具."""
+
+    async def before_run(self, ctx: RunContext[LearningDeps]) -> None:
+        print(f'[capability] 开始学习：{ctx.deps.learner}')
+
+    async def before_model_request(
+        self, ctx: RunContext[LearningDeps], request_context: ModelRequestContext
+    ) -> ModelRequestContext:
+        print(f'[capability] 模型请求；当前消息数：{len(ctx.messages)}')
+        return request_context  # 返回请求上下文；需要时可在这里修改请求配置。
+
+
 def build_agent(*, require_tools: bool = True) -> Agent[LearningDeps, StudyNote]:  # 流式模式允许先返回最终输出。
     """组装模型、指令、工具和输出校验器."""
     model = OpenAIChatModel(  # 使用本机已安装且支持工具调用的模型。
         getenv('OLLAMA_MODEL', 'qwen2.5:14b-instruct-q4_K_M'),
         provider=OllamaProvider(base_url=getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')),
     )
+    study_tools = FunctionToolset[LearningDeps]()
+
+    def study_checklist() -> list[str]:
+        """获取学习检查清单，在提交笔记前调用."""
+        print('[toolset] 执行 study_checklist')
+        return ['解释 Agent 管理执行循环', '解释工具由应用执行', '计算学习进度']
+
+    study_tools.tool_plain(study_checklist)  # ??????????????
     agent = Agent(  # 泛型参数让 deps 和最终输出在 IDE 中保持类型安全。
         model,
+        name='learning_agent',
         deps_type=LearningDeps,
         output_type=ToolOutput(StudyNote),
+        toolsets=[study_tools],
+        capabilities=[LearningCapability()],
+        model_settings={'temperature': 0.2},  # 默认模型设置，也可在单次 run 中覆盖。
         instructions=(
-            '用中文教学。先调用概念工具，再用进度工具计算 1/2，最后返回简短学习笔记。'
+            '用中文教学。先调用 study_checklist 和概念工具，再用进度工具计算 1/2，最后返回简短学习笔记。'
             if require_tools
             else '在 Pydantic AI 中，Agent 管理模型请求和工具执行；工具是应用注册的 Python 函数。用中文简短解释并返回结构化笔记。'
         ),
@@ -52,6 +80,7 @@ def build_agent(*, require_tools: bool = True) -> Agent[LearningDeps, StudyNote]
 
     def explain_concept(concept: str) -> str:
         """解释 Agent 或工具；concept 只能是 Agent 或 工具."""
+        print(f'[tool_plain] 执行 explain_concept：{concept}')
         if concept == 'Agent':
             return 'Agent 管理模型请求、工具调用和最终输出的执行循环。'
         if concept == '工具':
@@ -60,6 +89,7 @@ def build_agent(*, require_tools: bool = True) -> Agent[LearningDeps, StudyNote]
 
     def learning_progress(ctx: RunContext[LearningDeps], completed: int, total: int) -> str:
         """计算学习进度；completed 是完成数，total 是总数."""
+        print(f'[tool] 执行 learning_progress：{completed}/{total}')
         if total <= 0 or not 0 <= completed <= total:
             raise ModelRetry('请满足 total > 0 且 0 <= completed <= total。')
         return f'{ctx.deps.learner}已完成 {completed}/{total}，进度 {completed / total:.0%}。'
@@ -75,8 +105,8 @@ def build_agent(*, require_tools: bool = True) -> Agent[LearningDeps, StudyNote]
             for part in message.parts
             if isinstance(part, ToolReturnPart)
         }
-        if require_tools and not {'explain_concept', 'learning_progress'} <= completed:
-            raise ModelRetry('先调用 explain_concept 和 learning_progress，再提交最终学习笔记。')
+        if require_tools and not {'study_checklist', 'explain_concept', 'learning_progress'} <= completed:
+            raise ModelRetry('先调用 study_checklist、explain_concept 和 learning_progress，再提交最终学习笔记。')
         if require_tools and not any(
             part.tool_name == 'learning_progress' and isinstance(part.content, str) and '1/2' in part.content
             for message in ctx.messages
@@ -89,10 +119,10 @@ def build_agent(*, require_tools: bool = True) -> Agent[LearningDeps, StudyNote]
             raise ModelRetry('总结中请同时说明 Agent 和工具的关系。')
         return note
 
-    agent.instructions(learner_instruction)  # 每次运行根据应用依赖补充指令。
-    agent.tool_plain(explain_concept)  # 无 RunContext 的普通工具。
-    agent.tool(learning_progress)  # 工具通过 ctx.deps 读取学习者身份。
-    agent.output_validator(validate_note)  # 结构验证后执行业务校验。
+    agent.instructions(learner_instruction)  # ??? @agent.instructions?
+    agent.tool_plain(explain_concept)  # ??? @agent.tool_plain????????
+    agent.tool(learning_progress)  # ??? @agent.tool????????
+    agent.output_validator(validate_note)  # ??? @agent.output_validator?
     return agent
 
 
