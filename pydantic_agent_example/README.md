@@ -24,16 +24,16 @@
 2. `LearningCapability`：通过 `before_run` 和 `before_model_request` 观察运行生命周期。
 3. `build_agent()`：配置模型、静态与动态指令、两种工具、toolset、capabilities、`ToolOutput` 和输出校验器。
 4. `run_sync()`：第一个执行的独立同步示例，要求三个工具真实执行并校验最终输出。可在 `agent.run_sync(...)` 和下一行打断点，观察调用前后的状态；它在文件末尾先于 `asyncio.run(main())` 执行，因为不能在已有事件循环中调用。
-5. `run_normal()`：第一轮显式列出当前版本 `run()` 的全部参数，演示本轮模型设置、指令、toolsets、capabilities、元数据、事件处理器、取消 token 和累计用量；第二轮用 `conversation` 续接历史并指定 `output_type=str`。校验三个工具确实执行，并计算 `1/2`。
+5. `run_normal()`：第一轮使用具体值演示本轮模型设置、指令、toolsets、capabilities、元数据、事件处理器、取消 token、累计用量、背景历史和 `AgentSpec`；第二轮用 `conversation` 续接历史并指定 `output_type=str`。校验三个工具确实执行，并计算 `1/2`。
 6. `run_stream()`、`run_events()`、`run_steps()`：依次展示结构化流式输出、事件流和节点遍历。
 
 ### run 参数的组合约束
 
 `conversation` 已包含历史、累计用量和对话 ID，不能再同时传 `message_history`、`usage` 或 `conversation_id`。第一轮使用独立参数，第二轮使用 `first.conversation`。
 
-有输出校验器的 Agent 不能在单次运行中覆盖 `output_type`，所以第一轮传 `None` 沿用 `StudyNote`；没有输出校验器的续问 Agent 实际演示 `output_type=str`。
+有输出校验器的 Agent 不能在单次运行中覆盖 `output_type`，所以第一轮不传该参数，沿用 `StudyNote`；没有输出校验器的续问 Agent 实际演示 `output_type=str`。
 
-`deferred_tool_results`、`workspace` 和 `spec` 在本例中显式传 `None` 并解释用途：它们分别用于恢复延迟工具调用、接入工作区和应用声明式配置，不是填写占位数据就能展示的功能。取消 token 本轮保持未取消状态，外部任务可调用其 `cancel()` 终止运行。事件处理器让普通 `run()` 同时观察流式事件。
+`spec=AgentSpec(...)` 实际追加指令、模型设置和元数据，方便观察与显式运行参数的合并。`deferred_tool_results` 没有传入，因为本轮没有待恢复的延迟工具调用；`workspace` 没有传入，因为 Windows 本机调试不支持 `LocalWorkspaceBackend`，需要另行配置容器或虚拟机后端。示例不使用 `None` 占位。取消 token 本轮保持未取消状态，外部任务可调用其 `cancel()` 终止运行。事件处理器让普通 `run()` 同时观察流式事件。
 
 每种运行方式都会发送新的本地模型请求；一次完整执行会运行全部五种方式，因此会有多次模型推理。模型可能选择不同工具调用顺序；`run()` 部分要求真实工具返回，其他部分专门观察运行接口。`run_stream()` 收到首次最终输出后就结束，不适合用这个入口强制模型先完成其他工具调用；需要观察完整工具流程时使用 `run_stream_events()` 或 `iter()`。`ModelRetry` 可要求模型修正工具参数或最终答案，但流式输出已经开始后无法重试。
 

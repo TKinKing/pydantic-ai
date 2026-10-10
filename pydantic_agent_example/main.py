@@ -9,8 +9,9 @@ from uuid import uuid4
 from pydantic import BaseModel, Field  # 最终答案采用有类型的结构化输出。
 
 from pydantic_ai import Agent, AgentRunResultEvent, CancellationToken, ModelRetry, RunContext  # Agent 核心 API。
+from pydantic_ai.agent.spec import AgentSpec
 from pydantic_ai.capabilities import AbstractCapability, Capability  # capabilities（简称 caps）扩展运行生命周期。
-from pydantic_ai.messages import AgentStreamEvent, ModelRequest, ToolReturnPart  # 检查教学工具是否真正执行并返回。
+from pydantic_ai.messages import AgentStreamEvent, ModelRequest, ToolReturnPart, UserPromptPart
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel  # Ollama 提供 OpenAI 兼容接口。
 from pydantic_ai.output import ToolOutput  # 用工具调用承载最终结构，适配本地模型。
@@ -140,7 +141,7 @@ def run_sync(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) -> None:
 
 
 async def run_normal(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) -> None:
-    """显式展示 run 的全部参数，再用 conversation 继续对话."""
+    """使用具体参数演示 run，再用 conversation 继续对话."""
     usage = RunUsage()  # 传入可累计的用量对象；运行结束后它也会更新。
     cancellation_token = CancellationToken()  # 外部任务可调用 cancel()；每次运行使用新 token。
     event_counts: dict[str, int] = {}
@@ -152,12 +153,17 @@ async def run_normal(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) 
             event_counts[name] = event_counts.get(name, 0) + 1
 
     run_tools = FunctionToolset[LearningDeps](instructions='这是本次运行追加的 toolset 指令：学习笔记应简洁。')
+
+    def learning_goal() -> str:
+        """获取本次学习目标，需要时调用."""
+        return '理解 Agent 管理执行循环，工具执行应用逻辑。'
+
+    run_tools.tool_plain(learning_goal)  # 本轮 toolset 不仅有指令，也有真实工具。
+    history = [ModelRequest(parts=[UserPromptPart(content='背景：我熟悉 TypeScript，正在学习 Python Agent。')])]
     first = await agent.run(  # run 返回完整结果，包括输出、用量和消息。
         user_prompt='请解释 Agent 和工具，调用 learning_progress 计算 completed=1、total=2，再写中文学习笔记。',
-        output_type=None,  # 沿用构造时的 StudyNote；已有输出校验器，不能临时覆盖类型。
-        conversation=None,  # 本轮用下面三个独立参数；与它们互斥。
-        message_history=[],  # 首轮没有历史；续问也可传 first.all_messages()。
-        deferred_tool_results=None,  # 只有恢复尚未完成的延迟工具调用时才提供实际结果。
+        # output_type 和 conversation 的具体值见下面 second；这里已有校验器并使用独立历史参数。
+        message_history=history,  # 传入已有背景消息，可在源码中观察怎样与新 prompt 合并。
         conversation_id=str(uuid4()),  # 同一对话各轮共享的标识。
         run_id=str(uuid4()),  # 本次运行独有的标识，不能复用历史中的 run_id。
         model=agent.model,  # 单次运行可选择其他模型；这里显式沿用本地 Ollama。
@@ -173,8 +179,13 @@ async def run_normal(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) 
         toolsets=[run_tools],  # 追加本轮 toolset，不替换 Agent 原有工具。
         event_stream_handler=observe_events,
         capabilities=[Capability(instructions='这是本轮追加的 capability：明确说明工具由应用执行。')],
-        workspace=None,  # 此例没有文件操作；有工作区需求时传后端、WorkspaceRef 或 'new'。
-        spec=None,  # 此例直接用 Python 配置；也可传 AgentSpec 或配置字典追加本轮配置。
+        spec=AgentSpec(
+            instructions='将 Python Agent 与 TypeScript 的调用习惯联系起来解释。',
+            model_settings={'max_tokens': 1000},  # 与上面的 temperature 合并。
+            metadata={'configuration_source': 'AgentSpec'},  # 与上面的运行元数据合并。
+        ),
+        # deferred_tool_results 只用于恢复真实的待处理工具调用，此轮没有这样的调用。
+        # workspace 需要可用后端；Windows 的 LocalWorkspaceBackend 不支持本机执行。
     )
     print('run 的事件统计：', event_counts)
     print(f'累计用量：请求 {usage.requests} 次；对话 ID：{first.conversation_id}；运行 ID：{first.run_id}')
