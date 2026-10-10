@@ -1,0 +1,38 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Pydantic AI 学习示例 (Ollama)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/pydantic_agent_example/main.py",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "windows": {
+                "python": "${workspaceFolder}/.venv/Scripts/python.exe"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "PYTHONUTF8": "1",
+                "OLLAMA_MODEL": "${input:learningOllamaModel}",
+                "OLLAMA_BASE_URL": "${input:learningOllamaUrl}"
+            }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "learningOllamaModel",
+            "type": "promptString",
+            "description": "Ollama 模型名称（须支持工具调用）",
+            "default": "qwen2.5:14b-instruct-q4_K_M"
+        },
+        {
+            "id": "learningOllamaUrl",
+            "type": "promptString",
+            "description": "Ollama OpenAI 兼容接口地址（包含 /v1）",
+            "default": "http://localhost:11434/v1"
+        }
+    ]
+}

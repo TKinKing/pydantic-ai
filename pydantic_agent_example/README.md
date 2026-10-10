@@ -10,6 +10,14 @@
 
 默认模型是本机已安装的 `qwen2.5:14b-instruct-q4_K_M`。主脚本也可在 Linux/macOS 直接运行；设置 `OLLAMA_MODEL` 和 `OLLAMA_BASE_URL` 可切换模型与地址。需要安装当前仓库的 `pydantic-ai-slim[openai]`，Windows 启动脚本沿用 Harness 示例的 WSL 学习环境。
 
+## VS Code 断点调试
+
+用 VS Code 打开仓库根目录，安装 Microsoft 的 Python 和 Python Debugger 扩展。在“运行和调试”中选择 **Python: Pydantic AI 学习示例 (Ollama)**，设置断点后按 **F5**。启动时输入模型名称和接口地址，默认值可直接按回车确认。
+
+配置位于 [launch.json](../.vscode/launch.json)，Windows 使用仓库的 `.venv/Scripts/python.exe`，Linux/macOS 使用 `.venv/bin/python`。此入口直接运行 Python，需在该虚拟环境中安装当前仓库及 OpenAI 依赖，并启动 Ollama；它不使用 PowerShell 脚本中的 WSL 虚拟环境。在 VS Code Remote WSL 中调试时，可把配置的 `python` 改成已准备好的 `/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python`，接口地址填写 Windows 主机地址。
+
+建议在 `LearningCapability.before_model_request`、`explain_concept`、`learning_progress` 和 `validate_note` 中设置断点，分别观察请求上下文、模型传入的工具参数、`ctx.deps` 和最终输出。配置的 `justMyCode: false` 允许单步进入 Pydantic AI 源码。F5 会执行整个示例的五种运行入口。
+
 ## 阅读顺序
 
 1. `LearningDeps` 与 `StudyNote`：应用传入的依赖和经过 Pydantic 校验的最终答案。
