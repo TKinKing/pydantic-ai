@@ -1,20 +1,22 @@
 """只使用 Pydantic AI 核心的中文 Agent 示例；直接运行时依次展示五种运行入口."""
 
 import asyncio  # 驱动异步运行入口。
+from collections.abc import AsyncIterable
 from dataclasses import dataclass  # 应用依赖由代码提供，不交给模型生成。
 from os import getenv  # 支持切换本地 Ollama 模型和地址。
+from uuid import uuid4
 
 from pydantic import BaseModel, Field  # 最终答案采用有类型的结构化输出。
 
-from pydantic_ai import Agent, AgentRunResultEvent, ModelRetry, RunContext  # Agent 核心 API。
-from pydantic_ai.capabilities import AbstractCapability  # capabilities（简称 caps）扩展运行生命周期。
-from pydantic_ai.messages import ModelRequest, ToolReturnPart  # 检查教学工具是否真正执行并返回。
+from pydantic_ai import Agent, AgentRunResultEvent, CancellationToken, ModelRetry, RunContext  # Agent 核心 API。
+from pydantic_ai.capabilities import AbstractCapability, Capability  # capabilities（简称 caps）扩展运行生命周期。
+from pydantic_ai.messages import AgentStreamEvent, ModelRequest, ToolReturnPart  # 检查教学工具是否真正执行并返回。
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel  # Ollama 提供 OpenAI 兼容接口。
 from pydantic_ai.output import ToolOutput  # 用工具调用承载最终结构，适配本地模型。
 from pydantic_ai.providers.ollama import OllamaProvider  # 连接本地 Ollama。
 from pydantic_ai.toolsets import FunctionToolset  # 把一组可复用工具作为组件注册。
-from pydantic_ai.usage import UsageLimits  # 限制一次运行的请求和工具调用。
+from pydantic_ai.usage import RunUsage, UsageLimits  # 限制一次运行的请求和工具调用。
 
 
 @dataclass  # 应用通过 deps 传入事实，避免模型自行编造。
@@ -138,12 +140,44 @@ def run_sync(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) -> None:
 
 
 async def run_normal(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) -> None:
-    """演示完整运行、结构化输出和消息历史续接."""
+    """显式展示 run 的全部参数，再用 conversation 继续对话."""
+    usage = RunUsage()  # 传入可累计的用量对象；运行结束后它也会更新。
+    cancellation_token = CancellationToken()  # 外部任务可调用 cancel()；每次运行使用新 token。
+    event_counts: dict[str, int] = {}
+
+    async def observe_events(ctx: RunContext[LearningDeps], events: AsyncIterable[AgentStreamEvent]) -> None:
+        """观察流式事件；run 仍然返回完整结果."""
+        async for event in events:
+            name = type(event).__name__
+            event_counts[name] = event_counts.get(name, 0) + 1
+
+    run_tools = FunctionToolset[LearningDeps](instructions='这是本次运行追加的 toolset 指令：学习笔记应简洁。')
     first = await agent.run(  # run 返回完整结果，包括输出、用量和消息。
-        '请解释 Agent 和工具，调用 learning_progress 计算 completed=1、total=2，再写中文学习笔记。',
-        deps=deps,
+        user_prompt='请解释 Agent 和工具，调用 learning_progress 计算 completed=1、total=2，再写中文学习笔记。',
+        output_type=None,  # 沿用构造时的 StudyNote；已有输出校验器，不能临时覆盖类型。
+        conversation=None,  # 本轮用下面三个独立参数；与它们互斥。
+        message_history=[],  # 首轮没有历史；续问也可传 first.all_messages()。
+        deferred_tool_results=None,  # 只有恢复尚未完成的延迟工具调用时才提供实际结果。
+        conversation_id=str(uuid4()),  # 同一对话各轮共享的标识。
+        run_id=str(uuid4()),  # 本次运行独有的标识，不能复用历史中的 run_id。
+        model=agent.model,  # 单次运行可选择其他模型；这里显式沿用本地 Ollama。
+        instructions='这次回答控制在一小段中文内。',  # 追加本轮指令。
+        deps=deps,  # 应用提供的实际依赖，而不是依赖类型。
+        model_settings={'temperature': 0.1},  # 覆盖构造时的 temperature=0.2。
         usage_limits=UsageLimits(request_limit=8, tool_calls_limit=8),
+        cancellation_token=cancellation_token,
+        usage=usage,
+        metadata={'example': 'run_parameters', 'learner': deps.learner},  # 应用元数据，不是模型提示词。
+        retries={'tools': 4, 'output': 4},  # 分别覆盖工具和最终输出的重试预算。
+        infer_name=False,  # 已有 name='learning_agent'，无需从调用栈推断名称。
+        toolsets=[run_tools],  # 追加本轮 toolset，不替换 Agent 原有工具。
+        event_stream_handler=observe_events,
+        capabilities=[Capability(instructions='这是本轮追加的 capability：明确说明工具由应用执行。')],
+        workspace=None,  # 此例没有文件操作；有工作区需求时传后端、WorkspaceRef 或 'new'。
+        spec=None,  # 此例直接用 Python 配置；也可传 AgentSpec 或配置字典追加本轮配置。
     )
+    print('run 的事件统计：', event_counts)
+    print(f'累计用量：请求 {usage.requests} 次；对话 ID：{first.conversation_id}；运行 ID：{first.run_id}')
     print('结构化输出：', first.output.model_dump())  # StudyNote 已经通过结构和业务校验。
     print(f'首次请求数：{first.usage.requests}；消息数：{len(first.all_messages())}')
     print(
@@ -161,8 +195,9 @@ async def run_normal(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) 
     )
     second = await followup.run(  # 把上一轮消息传给模型，继续同一段对话。
         '沿用刚才的话题，换一句话概括。',
+        output_type=str,  # followup 没有输出校验器，可以显式指定本轮输出类型。
         deps=deps,
-        message_history=first.all_messages(),
+        conversation=first.conversation,  # 一并携带历史、累计用量和对话 ID。
         usage_limits=UsageLimits(request_limit=8, tool_calls_limit=8),
     )
     print('继续对话：', second.output)
