@@ -23,7 +23,7 @@
 1. `LearningDeps` 与 `StudyNote`：应用传入的依赖和经过 Pydantic 校验的最终答案。
 2. `LearningCapability`：通过 `before_run` 和 `before_model_request` 观察运行生命周期。
 3. `build_agent()`：配置模型、静态与动态指令、两种工具、toolset、capabilities、`ToolOutput` 和输出校验器。
-3. 文件末尾的 `run_sync()`：同步入口先运行，因为它不能在已有事件循环中调用。
+3. `run_sync()`：第一个执行的独立同步示例，要求三个工具真实执行并校验最终输出。可在 `agent.run_sync(...)` 和下一行打断点，观察调用前后的状态；它在文件末尾先于 `asyncio.run(main())` 执行，因为不能在已有事件循环中调用。
 4. `run_normal()`：使用 `run()`、`UsageLimits`、`all_messages()` 和 `new_messages()` 继续对话；校验两种工具确实执行，并计算 `1/2`。
 5. `run_stream()`、`run_events()`、`run_steps()`：依次展示结构化流式输出、事件流和节点遍历。
 

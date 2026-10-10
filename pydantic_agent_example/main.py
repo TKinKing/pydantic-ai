@@ -126,6 +126,17 @@ def build_agent(*, require_tools: bool = True) -> Agent[LearningDeps, StudyNote]
     return agent
 
 
+def run_sync(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) -> None:
+    """第一个示例：同步跑完工具调用和输出校验，方便设置断点."""
+    result = agent.run_sync(
+        '请调用 study_checklist，解释 Agent 和工具，用 learning_progress 计算 completed=1、total=2，再提交笔记。',
+        deps=deps,
+        usage_limits=UsageLimits(request_limit=8, tool_calls_limit=8),
+    )
+    print('同步结果：', result.output.model_dump())
+    print(f'同步请求数：{result.usage.requests}；工具调用数：{result.usage.tool_calls}')
+
+
 async def run_normal(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) -> None:
     """演示完整运行、结构化输出和消息历史续接."""
     first = await agent.run(  # run 返回完整结果，包括输出、用量和消息。
@@ -191,7 +202,7 @@ async def run_steps(agent: Agent[LearningDeps, StudyNote], deps: LearningDeps) -
 async def main() -> None:  # 固定顺序执行异步示例，无需命令行参数。
     """依次展示普通运行、结构化流式输出、事件流和逐步执行."""
     deps = LearningDeps()
-    await run_normal(build_agent(require_tools=True), deps)  # 先验证两种工具的真实执行。
+    await run_normal(build_agent(require_tools=True), deps)  # 验证三个工具的真实执行。
     agent = build_agent(require_tools=False)  # 流式演示聚焦观察输出，不强制先调用工具。
     await run_stream(agent, deps)
     await run_events(agent, deps)
@@ -199,8 +210,5 @@ async def main() -> None:  # 固定顺序执行异步示例，无需命令行参
 
 
 if __name__ == '__main__':
-    result = build_agent(require_tools=False).run_sync(
-        '解释 Agent 和工具并总结。', deps=LearningDeps()
-    )  # 同步入口必须在 asyncio.run() 启动事件循环之前执行。
-    print('同步结果：', result.output.model_dump())
+    run_sync(build_agent(require_tools=True), LearningDeps())  # 同步入口在异步事件循环启动前执行。
     asyncio.run(main())
