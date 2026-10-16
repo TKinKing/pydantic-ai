@@ -12,6 +12,8 @@
 
 已有的 `run_ollama.ps1` 是 WSL 启动入口，使用 `/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python`；它与 F5 使用的 Windows 虚拟环境不同。
 
+需要使用现成 Harness 能力（AskUser、Planning、Memory、Coder）时，见 [Harness 本地模型与调试示例](../pydantic_harness_example/README.md)。
+
 ## VS Code 断点调试
 
 用 VS Code 打开仓库根目录，安装 Microsoft 的 Python 和 Python Debugger 扩展。在“运行和调试”中选择 **Python: Pydantic AI 学习示例 (Ollama)**，设置断点后按 **F5**。启动时输入模型名称和接口地址，默认值可直接按回车确认。

@@ -19,6 +19,51 @@
                 "OLLAMA_MODEL": "${input:learningOllamaModel}",
                 "OLLAMA_BASE_URL": "${input:learningOllamaUrl}"
             }
+        },
+        {
+            "name": "Python: Harness 学习示例 (Ollama)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pydantic_harness_example.main",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "windows": {
+                "python": "${workspaceFolder}/.venv/Scripts/python.exe"
+            },
+            "args": [
+                "--profile",
+                "${input:harnessProfile}",
+                "--compaction",
+                "${input:harnessCompaction}"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "PYTHONUTF8": "1",
+                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
+                "OLLAMA_BASE_URL": "${input:learningOllamaUrl}"
+            }
+        },
+        {
+            "name": "Python: Harness Coder (Remote - WSL)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pydantic_harness_example.main",
+            "cwd": "${workspaceFolder}",
+            "python": "${input:harnessWslPython}",
+            "args": [
+                "--profile",
+                "coder"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "PYTHONUTF8": "1",
+                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
+                "OLLAMA_BASE_URL": "${input:harnessWslOllamaUrl}"
+            }
         }
     ],
     "inputs": [
@@ -33,6 +78,44 @@
             "type": "promptString",
             "description": "Ollama OpenAI 兼容接口地址（包含 /v1）",
             "default": "http://localhost:11434/v1"
+        },
+        {
+            "id": "harnessProfile",
+            "type": "pickString",
+            "description": "Harness 组合（Windows 原生可运行）",
+            "options": [
+                "learning",
+                "context"
+            ],
+            "default": "learning"
+        },
+        {
+            "id": "harnessCompaction",
+            "type": "pickString",
+            "description": "上下文压缩策略（仅 context 组合生效）",
+            "options": [
+                "sliding",
+                "clear"
+            ],
+            "default": "sliding"
+        },
+        {
+            "id": "harnessWslPython",
+            "type": "promptString",
+            "description": "WSL 中已安装当前仓库依赖的 Python",
+            "default": "/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python"
+        },
+        {
+            "id": "harnessWslOllamaUrl",
+            "type": "promptString",
+            "description": "WSL 可访问的 Ollama 地址；NAT 模式填 Windows 网关 IP，见 README",
+            "default": "http://localhost:11434/v1"
+        },
+        {
+            "id": "harnessOllamaModel",
+            "type": "promptString",
+            "description": "Harness 本地模型；默认使用同一 Qwen 权重的 16K 上下文配置",
+            "default": "qwen2.5-harness:14b-16k"
         }
     ]
 }
