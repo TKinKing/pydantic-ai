@@ -17,5 +17,3 @@ agent = Agent(  # Harness 不另建一套 Agent，而是组合到 Pydantic AI �
 
 if __name__ == '__main__':  # 直接运行本文件时演示；导入本文件不会自动调用模型。
     result = agent.run_sync('请读取当前计划。')  # 同步入口内部驱动异步的 Agent 运行循环。
-    print(result.output)  # 读取最终结果；TestModel 的固定回答不代表真实模型推理。
-    print(result.all_messages())  # 查看用户输入、模型工具调用、工具返回和最终回答。

@@ -154,15 +154,6 @@ class Walkthrough(AbstractCapability[LearningDeps]):
 
         return settings
 
-    async def before_run(self, ctx: RunContext[LearningDeps]) -> None:
-        print(f'[运行开始] run_id={ctx.run_id}；conversation_id={ctx.conversation_id}')
-
-    async def before_model_request(
-        self, ctx: RunContext[LearningDeps], request_context: ModelRequestContext
-    ) -> ModelRequestContext:
-        print(f'[模型请求] step={ctx.run_step}；已完成教学步骤={len(ctx.deps.completed_steps)}')
-        return request_context
-
     async def before_tool_execute(
         self,
         ctx: RunContext[LearningDeps],
@@ -183,7 +174,6 @@ class Walkthrough(AbstractCapability[LearningDeps]):
                 items: list[PlanItem] = args['items']  # Planning 已将参数校验为公开的 PlanItem 类型。
                 if not items or any(item.status is not step.plan_status for item in items):
                     raise ModelRetry(f'本步要求非空计划，所有任务 status={step.plan_status.value!r}。')
-        print(f'[工具执行] {call.tool_name}；参数={args}')
         return args
 
     async def after_tool_execute(
@@ -203,7 +193,6 @@ class Walkthrough(AbstractCapability[LearningDeps]):
             step = LESSON_STEPS[len(ctx.deps.completed_steps)]
             if call.tool_name == step.tool:
                 ctx.deps.completed_steps.append(step.tool)
-        print(f'[工具完成] {call.tool_name}；教学进度={len(ctx.deps.completed_steps)}/{len(LESSON_STEPS)}')
         return result
 
 
@@ -271,7 +260,6 @@ def build_agent(
         """固定选第一项；这是模拟学习偏好，真实交互版见 pydantic_harness_example."""
         answers: list[AskUserAnswer] = []
         for question in request.questions:
-            print(f'[模拟回答] {question.header}：{question.options[0].label}')
             answers.append(AskUserAnswer(header=question.header, selected=(question.options[0].label,)))
         return AskUserResponse(answers=tuple(answers))
 
@@ -349,20 +337,18 @@ def build_agent(
             raise ModelRetry(f'学习流程尚未完成，请调用 {step.tool}。{step.instruction}')
         return output
 
-    async def show_context(ctx: RunContext[LearningDeps], event: ContextUsageEvent) -> None:
+    async def record_context(ctx: RunContext[LearningDeps], event: ContextUsageEvent) -> None:
         ctx.deps.context_events += 1
-        print(f'[上下文] 估算 {event.used_tokens}/{event.window_tokens} token')
 
-    async def show_delegation(ctx: RunContext[LearningDeps], event: DelegationEndEvent) -> None:
+    async def record_delegation(ctx: RunContext[LearningDeps], event: DelegationEndEvent) -> None:
         if event.outcome == 'ok':
             ctx.deps.successful_delegations += 1
-        print(f'[子代理完成] {event.agent_name}：{event.outcome}')
 
     agent.tool(learning_progress)
     agent.tool_plain(long_reference)
     agent.output_validator(validate_completion)
-    agent.on_event(ContextUsageEvent)(show_context)
-    agent.on_event(DelegationEndEvent)(show_delegation)
+    agent.on_event(ContextUsageEvent)(record_context)
+    agent.on_event(DelegationEndEvent)(record_delegation)
     return agent, store
 
 
@@ -391,7 +377,6 @@ async def run_example(
         (workspace / 'messages.json').write_bytes(result.all_messages_json())
         runs = await store.list_runs(conversation_id=result.conversation_id)
         history = await continue_run(store, run_id=runs[-1].run_id)
-        print(f'[快照读回] {len(history)} 条消息；原运行={result.run_id}')
         if resume:
             deps.continuing = True
             result = await agent.run(
@@ -420,10 +405,6 @@ async def run_example(
         'note': '工具成功返回与能力注册分别记录；不代表每个护栏拒绝或压缩分支都已触发。',
     }
     (workspace / 'coverage.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
-    print(
-        f'\n{result.output}\n教学步骤：{len(deps.completed_steps)}/{len(LESSON_STEPS)}；请求数：{result.usage.requests}'
-    )
-    print(f'产物目录：{workspace}')
     return result
 
 
@@ -434,13 +415,9 @@ async def main() -> None:
             '综合示例请用 WSL/Linux/macOS 运行，VS Code 选择 Python: Harness 完整流程 (DeepSeek / Ollama / WSL)。'
         )
     model = create_model()
-    print(f'[模型] 服务={model.system}；模型={model.model_name}；接口={model.base_url}')
-    print('\n=== 完整工具流程：Workspace / Skills / Memory / RAG / MCP ===')
     await run_example(model=model)
     study_workspace = WORKSPACE.parent / 'memory-history'
-    print('\n=== 跨 conversation 记忆：同一用户，新的 Agent 和对话 ===')
     await demonstrate_memory(workspace=study_workspace, model=model)
-    print('\n=== 历史：一万条档案的滑窗，以及小批次增量摘要 ===')
     await demonstrate_history(workspace=study_workspace, model=model)
 
 

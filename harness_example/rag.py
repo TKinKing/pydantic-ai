@@ -182,8 +182,7 @@ async def run_rag(
 
 async def main() -> None:
     """独立运行入口；修改 run_rag 的 retrieval 参数即可接入自己的服务."""
-    result = await run_rag()
-    print(result.output)
+    await run_rag()
 
 
 if __name__ == '__main__':

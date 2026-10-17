@@ -14,13 +14,27 @@ DEEPSEEK_API_KEY = getenv('DEEPSEEK_API_KEY', '')
 
 有非空值时，主代理和 reviewer 都使用 DeepSeek；空字符串或只有空白时，都使用原本的本地 Ollama。入口不增加命令行参数。Key 无效或请求失败会直接报错，不自动切回本地模型。
 
-F5 会读取仓库根目录的 `.env`，可在其中设置 `DEEPSEEK_API_KEY=你的密钥`。PowerShell 启动脚本读取当前 Windows 环境变量并传入 WSL；直接从 WSL 终端启动时，设置 WSL 的同名环境变量。普通 Python 启动不会自动加载 `.env`。
+F5 和 `just` 会读取仓库根目录的 `.env`，可在其中设置 `DEEPSEEK_API_KEY=你的密钥`。PowerShell 启动脚本读取当前 Windows 环境变量并传入 WSL；直接从 WSL 终端启动 Python 时，设置 WSL 的同名环境变量。普通 Python 启动不会自动加载 `.env`。
 
-DeepSeek 使用仓库已支持的 `deepseek-v4-flash` 别名，并关闭深度思考以观察工具调用。[官方说明](https://api-docs.deepseek.com/)确认该别名仍被接受；上下文报告按[官方模型规格](https://api-docs.deepseek.com/quick_start/pricing/)的 1M 计算，本地模型按 16K 计算。日志只显示服务、模型与接口，不显示 Key。
+DeepSeek 使用仓库已支持的 `deepseek-v4-flash` 别名，并关闭深度思考以观察工具调用。[官方说明](https://api-docs.deepseek.com/)确认该别名仍被接受；上下文报告按[官方模型规格](https://api-docs.deepseek.com/quick_start/pricing/)的 1M 计算，本地模型按 16K 计算。
 
 ## 运行
 
-仓库根目录的 PowerShell：
+在仓库根目录、已安装 `just` 的终端执行：
+
+~~~powershell
+just harness-test   # 运行本目录全部测试，不需要启动 Ollama 或提供真实 API Key
+just harness        # 执行完整例子，按 Key 选择 DeepSeek 或本地 Ollama
+just harness-debug  # 启动 debugpy，等待 VS Code 附加后才执行例子
+~~~
+
+Windows 下三条命令自动通过 WSL 使用现有 Python 环境；WSL/Linux/macOS 下直接使用当前系统的 Python 环境，默认路径为 `~/.cache/pydantic-ai-harness-learning-venv/bin/python`。可用 `HARNESS_PYTHON` 环境变量指定其他解释器；在 Windows 下该变量也必须填写 **WSL 内的路径**。
+
+VS Code 的 **终端 → 运行任务** 也提供 `just harness`、`just harness-test`。完整例子不打印运行日志；断点中检查变量，运行后的消息、报告和历史窗口保存在 `output/`。测试结果仍由 pytest 输出。
+
+`just harness-debug` 会等待调试器连接。随后在 **Remote - WSL** 窗口选择 **Python: Harness 附加 just 调试 (WSL)** 并按 F5；完整步骤见 [调试指南](DEBUGGING.md)。直接 F5 启动则继续使用 **Python: Harness 完整流程 (DeepSeek / Ollama / WSL)**，无需先运行 just。
+
+也可以在仓库根目录直接运行原来的 PowerShell 脚本：
 
 ~~~powershell
 .\harness_example\run_ollama.ps1
@@ -128,8 +142,7 @@ from harness_example.rag import HttpRetrievalService, run_rag
 async def main() -> None:
     async with httpx.AsyncClient(timeout=20) as client:
         service = HttpRetrievalService(client, 'http://localhost:8000/search')
-        result = await run_rag('你的业务问题', retrieval=service)
-        print(result.output)
+        await run_rag('你的业务问题', retrieval=service)
 
 
 asyncio.run(main())

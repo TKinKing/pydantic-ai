@@ -227,20 +227,13 @@ async def run_lesson(lesson: Lesson, *, offline: bool = False) -> AgentRunResult
 
 
 async def main() -> None:
-    """选择一个实验，并打印实际调用与最终结果."""
+    """选择并运行一个实验."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--lesson', choices=['code-mode', 'workflow', 'background'], default='code-mode')
     parser.add_argument('--offline', action='store_true', help='固定模型决策，仍执行真实能力和工具')
     args = parser.parse_args()
     lesson: Lesson = args.lesson
-    result = await run_lesson(lesson, offline=args.offline)
-    for message in result.all_messages():
-        if isinstance(message, ModelResponse):
-            for part in message.parts:
-                if isinstance(part, ToolCallPart):
-                    print(f'[工具调用] {part.tool_name}: {part.args_as_dict()}')
-    print(result.output)
-    print(f'[用量] {result.usage}')
+    await run_lesson(lesson, offline=args.offline)
 
 
 if __name__ == '__main__':

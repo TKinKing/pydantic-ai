@@ -18,6 +18,19 @@ Windows Ollama + WSL NAT 时，用 `ip -4 route show default` 的网关地址组
 
 完整流程和 MCP 配置已启用 `subProcess: true`。在 [mcp_server.py](mcp_server.py) 的 `return a + b` 直接打断点，服务端会作为子进程调试会话出现；F11 不会跨 RPC 自动跳进服务端。工具请求超时为 300 秒，暂停超过这个时间后需重新运行。
 
+## 从 just 附加调试
+
+1. 在仓库根目录执行 `just harness-debug`。Windows 下它会启动 WSL Python，在 WSL 的 `127.0.0.1:5678` 监听并等待；尚未连接时不会执行例子。
+2. 用 VS Code **Remote - WSL** 打开同一仓库，在 `main.py` 的 `main` 或 `build_agent` 中设置断点。
+3. 选择 **Python: Harness 附加 just 调试 (WSL)**，按 F5。之后可以继续、单步，并进入 MCP 子进程。
+4. 停止调试后结束启动命令；重新调试时重新运行 `just harness-debug`。同一时间只启动一个使用 5678 端口的会话。
+
+在 Linux/macOS 原生运行时，可在同一系统的 VS Code 窗口使用这个附加配置，连接地址不变。附加配置不再选择模型或 Python，这些设置已由启动 `just` 的终端及根目录 `.env` 提供。
+
+只调试测试时，选择 **Python: Harness 测试 (pytest / WSL)** 并按 F5。它执行 `harness_example` 的测试，不请求真实模型；普通运行同一组测试使用 `just harness-test`。
+
+示例已移除 `print` 和自定义日志输出。调试时在变量面板观察 `result`、`ctx.deps`、消息和工具结果，也可以打开 `output/` 中保存的运行产物。
+
 ## 源码路线
 
 | 顺序 | 文件 / 符号 | 看什么 |

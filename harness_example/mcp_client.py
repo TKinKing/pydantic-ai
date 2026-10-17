@@ -40,7 +40,6 @@ async def main() -> None:
         instructions='请用中文回答。计算必须调用 mcp_add，回显必须调用 mcp_echo。',
         model_settings={'temperature': 0, 'max_tokens': 512},
     )
-    print(f'[MCP 客户端] 服务={model.system}；模型={model.model_name}')
     # 这个作用域管理 MCP 服务进程和连接，结束时关闭它们。
     async with agent:
         result = await agent.run(
@@ -56,7 +55,6 @@ async def main() -> None:
     }
     if not {'mcp_add', 'mcp_echo'} <= completed_tools:
         raise RuntimeError('模型没有实际完成 mcp_add 和 mcp_echo，不能把普通回答当成 MCP 演示已完成。')
-    print(result.output)
 
 
 if __name__ == '__main__':

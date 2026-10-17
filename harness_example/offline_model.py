@@ -98,7 +98,6 @@ def make_offline_model() -> FunctionModel:  # 每个运行创建新模型，避�
             if call.tool_name not in available:  # 检查工具真的存在，不能只在示例中写一个名称。
                 raise RuntimeError(f'当前未注册工具：{call.tool_name}；可用工具：{sorted(available)}')  # 显示注册问题。
             step += 1  # 只有成功选择一个工具后才推进教学步骤。
-            print(f'[离线模型 {step:02d}] 调用 {call.tool_name}')  # 终端展示模型决策和工具执行的分界。
             return ModelResponse(parts=[call])  # 核心 Agent 接收此消息后实际调用 Harness 工具。
         return ModelResponse(parts=[TextPart('学习总结：计划已完成，报告和长期记忆已保存。')])  # 结束模型工具循环。
 

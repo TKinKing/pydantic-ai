@@ -181,6 +181,38 @@
                 "OLLAMA_MODEL": "${input:harnessOllamaModel}",
                 "OLLAMA_BASE_URL": "${input:harnessWslOllamaUrl}"
             }
+        },
+        {
+            "name": "Python: Harness 附加 just 调试 (WSL)",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "127.0.0.1",
+                "port": 5678
+            },
+            "justMyCode": false,
+            "subProcess": true
+        },
+        {
+            "name": "Python: Harness 测试 (pytest / WSL)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "harness_example",
+                "-q",
+                "-p",
+                "no:cacheprovider"
+            ],
+            "cwd": "${workspaceFolder}",
+            "python": "${input:harnessWslPython}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "subProcess": true,
+            "env": {
+                "PYTHONUTF8": "1",
+                "DEEPSEEK_API_KEY": ""
+            }
         }
     ],
     "inputs": [

@@ -113,9 +113,6 @@ async def demonstrate_memory(
             usage_limits=UsageLimits(request_limit=2),
         )
     (workspace / 'memory_second_conversation.json').write_bytes(second.all_messages_json())
-    print(f'[跨会话记忆] 第一次 conversation_id={first.conversation_id}')
-    print(f'[跨会话记忆] 新会话 conversation_id={second.conversation_id}；共享 namespace=learner-001')
-    print(f'[新会话回答] {second.output}')
     return first, second
 
 
@@ -150,7 +147,6 @@ async def demonstrate_history(
         (workspace / 'sliding_request.json').write_bytes(
             ModelMessagesTypeAdapter.dump_json(request_context.messages, indent=2)
         )
-        print(f'[滑窗请求] 档案 {len(full_history)} 条；当前请求 {len(request_context.messages)} 条')
         return request_context
 
     sliding_agent = Agent(
@@ -193,7 +189,6 @@ async def demonstrate_history(
                 usage=summary_usage,
                 conversation_id='history-summary-lesson',
             )
-            print(f'[增量摘要] 已覆盖前 {start + 60} 条；摘要及近期消息 {len(summary_window)} 条')
     summary_requests = summary_usage.requests
     (workspace / 'summary_window.json').write_bytes(ModelMessagesTypeAdapter.dump_json(summary_window, indent=2))
 
@@ -234,9 +229,6 @@ async def demonstrate_history(
         ),
         encoding='utf-8',
     )
-    print(f'[滑窗回答] {sliding_result.output}')
-    print(f'[摘要回答] {summary_result.output}')
-    print(f'[完整历史保留在] {archive_path}；摘要只覆盖前 120 条，不覆盖全部 10000 条。')
     return sliding_result, summary_result
 
 
