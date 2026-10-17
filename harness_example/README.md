@@ -2,7 +2,7 @@
 
 **主入口：[main.py](main.py)。有 DeepSeek API Key 时调用 DeepSeek，否则使用本地 Ollama。依次执行 18 步工具流程、跨会话记忆、万条历史滑窗和增量摘要。**
 
-VS Code 用 **Remote - WSL** 打开仓库，选择 **Python: Harness 完整流程 (DeepSeek / Ollama / WSL)**，按 F5。断点顺序见 [源码调试指南](DEBUGGING.md)。
+直接调试：VS Code 用 **Remote - WSL** 打开仓库，在“运行和调试”中选择第一项 **Python: Harness 直接启动 (F5 / WSL)**，按 F5。它会自动启动完整例子并暂停在入口，无需先运行 `just` 或手动启动调试服务。断点顺序见 [源码调试指南](DEBUGGING.md)。
 
 ## 模型选择
 
@@ -32,7 +32,7 @@ Windows 下三条命令自动通过 WSL 使用现有 Python 环境；WSL/Linux/m
 
 VS Code 的 **终端 → 运行任务** 也提供 `just harness`、`just harness-test`。完整例子不打印运行日志；断点中检查变量，运行后的消息、报告和历史窗口保存在 `output/`。测试结果仍由 pytest 输出。
 
-`just harness-debug` 会等待调试器连接。随后在 **Remote - WSL** 窗口选择 **Python: Harness 附加 just 调试 (WSL)** 并按 F5；完整步骤见 [调试指南](DEBUGGING.md)。直接 F5 启动则继续使用 **Python: Harness 完整流程 (DeepSeek / Ollama / WSL)**，无需先运行 just。
+`just harness-debug` 会等待调试器连接。随后在 **Remote - WSL** 窗口选择 **Python: Harness 附加 just 调试 (WSL)** 并按 F5；完整步骤见 [调试指南](DEBUGGING.md)。直接 F5 启动使用第一项 **Python: Harness 直接启动 (F5 / WSL)**。
 
 也可以在仓库根目录直接运行原来的 PowerShell 脚本：
 

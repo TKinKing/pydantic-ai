@@ -412,7 +412,7 @@ async def main() -> None:
     """根据 API Key 选择模型，逐步执行完整流程并从快照续接."""
     if platform_name != 'posix':
         raise SystemExit(
-            '综合示例请用 WSL/Linux/macOS 运行，VS Code 选择 Python: Harness 完整流程 (DeepSeek / Ollama / WSL)。'
+            '综合示例请用 WSL/Linux/macOS 运行，VS Code 选择 Python: Harness 直接启动 (F5 / WSL)。'
         )
     model = create_model()
     await run_example(model=model)

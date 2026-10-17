@@ -2,10 +2,11 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Harness 完整流程 (DeepSeek / Ollama / WSL)",
+            "name": "Python: Harness 直接启动 (F5 / WSL)",
             "type": "debugpy",
             "request": "launch",
             "module": "harness_example.main",
+            "stopOnEntry": true,
             "subProcess": true,
             "cwd": "${workspaceFolder}",
             "python": "${input:harnessWslPython}",
@@ -258,7 +259,7 @@
             "id": "harnessWslOllamaUrl",
             "type": "promptString",
             "description": "WSL 可访问的 Ollama 地址；NAT 模式填 Windows 网关 IP，见 README",
-            "default": "http://localhost:11434/v1"
+            "default": "http://172.31.192.1:11434/v1"
         },
         {
             "id": "harnessOllamaModel",

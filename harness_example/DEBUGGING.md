@@ -2,13 +2,17 @@
 
 完整流程入口是 `python -m harness_example.main`，无需参数。[model_config.py](model_config.py) 的 `DEEPSEEK_API_KEY` 有值时连接 DeepSeek，否则连接本地 Ollama。先在 `create_model`、`build_agent` 放断点，再进入核心和 Harness 源码。完整入口也会执行跨会话记忆和长历史专题。
 
-## F5
+## 直接 F5 启动（推荐）
+
+[launch.json](../.vscode/launch.json) 的第一项 **Python: Harness 直接启动 (F5 / WSL)** 使用 `request: "launch"`。F5 会负责启动 Python 和调试器，不需要先开终端运行 `just harness-debug`。
 
 1. 安装 Microsoft 的 WSL 扩展，以 **Remote - WSL** 重新打开仓库。
 2. 在 WSL 窗口安装 Python 和 Python Debugger 扩展。
-3. 选择 **Python: Harness 完整流程 (DeepSeek / Ollama / WSL)**。使用 DeepSeek 时，在根目录 `.env` 中设置 `DEEPSEEK_API_KEY=你的密钥`；留空使用本地模型。
-4. 输入 WSL Python 路径 `/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python`、本地模型和接口地址；后两项仅在 Key 为空时使用。
-5. 设置断点，F5 继续、F10 单步、F11 进入函数。
+3. 打开左侧“运行和调试”（Ctrl+Shift+D），从下拉列表选择第一项 **Python: Harness 直接启动 (F5 / WSL)**。使用 DeepSeek 时，在根目录 `.env` 中设置 `DEEPSEEK_API_KEY=你的密钥`；留空使用本地模型。
+4. 确认 WSL Python、模型和接口地址；本机默认值已配置，可以依次回车。Python 为 `/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python`，Ollama 接口为 `http://172.31.192.1:11434/v1`；后两项仅在 Key 为空时使用。
+5. 按 F5 自动启动，并在入口暂停（`stopOnEntry: true`）。在 `main()` 或 `build_agent()` 设置断点后，F5 继续、F10 单步、F11 进入函数。
+
+完整例子需要 POSIX，因此这项配置须在 **Remote - WSL** 窗口使用；Windows 普通窗口不能直接执行该 WSL Python。只学习 RAG 或 MCP 时，可使用相应的 Windows 原生配置。
 
 Windows Ollama + WSL NAT 时，用 `ip -4 route show default` 的网关地址组成 `http://网关:11434/v1`。这台机器当前可用 `http://172.31.192.1:11434/v1`；WSL 重启后可能改变。
 
