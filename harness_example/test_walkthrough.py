@@ -9,8 +9,15 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter
 
-from harness_example.main import LESSON_STEPS, LearningDeps, build_agent, prepare_workspace, run_example
-from harness_example.offline_model import make_offline_model, make_reviewer_model
+from harness_example.main import (
+    LESSON_STEPS,
+    LearningDeps,
+    build_agent,
+    make_offline_model,
+    make_reviewer_model,
+    prepare_workspace,
+    run_example,
+)
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,

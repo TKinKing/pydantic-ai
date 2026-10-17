@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from harness_example.advanced import Lesson, background, code_mode, run_lesson, workflow
+from harness_example.main import Lesson, background, code_mode, run_lesson, workflow
 from pydantic_ai.messages import ModelRequest, ToolReturnPart, UserPromptPart
 from pydantic_ai.models.test import TestModel
 

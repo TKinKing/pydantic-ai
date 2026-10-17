@@ -4,7 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from harness_example.memory_history import (
+from harness_example.main import (
     MEMORY_FACT,
     MemoryUser,
     build_memory_agent,

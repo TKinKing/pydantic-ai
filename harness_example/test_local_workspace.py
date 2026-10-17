@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_example.local_workspace import (
+from harness_example.main import (
     NativeShell,
     NativeWorkspace,
     NativeWorkspaceBackend,

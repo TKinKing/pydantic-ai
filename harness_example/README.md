@@ -1,12 +1,12 @@
 # Harness 完整学习示例
 
-**主入口：[main.py](main.py)。有 DeepSeek API Key 时调用 DeepSeek，否则使用本地 Ollama。依次执行 29 步工具流程、跨会话记忆、万条历史滑窗和增量摘要。**
+**全部示例实现集中在 [main.py](main.py)，测试单独保留。默认依次执行 29 步工具流程、跨会话记忆、万条历史滑窗和增量摘要；有 DeepSeek API Key 时调用 DeepSeek，否则使用本地 Ollama。**
 
 直接调试：在本机 VS Code 打开仓库，在“运行和调试”中选择 **Debug Harness**，按 F5。它使用仓库的 `.venv`，自动启动完整例子并暂停在入口，不需要 WSL 或先运行 `just`。另一个入口 **Debug Agent** 启动 [基础 Agent 示例](../pydantic_agent_example/main.py)。调试列表只保留这两个入口，断点顺序见 [源码调试指南](DEBUGGING.md)。
 
 ## 模型选择
 
-为让各专题独立运行，模型配置集中在 [model_config.py](model_config.py)。其中 `DEEPSEEK_API_KEY` 变量控制选择，默认读取同名环境变量：
+模型配置也在 `main.py`，统一由 `create_model()` 创建。`DEEPSEEK_API_KEY` 变量控制选择，默认读取同名环境变量：
 
 ~~~python
 DEEPSEEK_API_KEY = getenv('DEEPSEEK_API_KEY', '')
@@ -39,11 +39,11 @@ VS Code 的 **终端 → 运行任务** 也提供 `just harness`、`just harness
 
 脚本使用本机 `.venv`，本地模型默认 `qwen2.5-harness:14b-16k`，接口默认 `http://localhost:11434/v1`。也可以直接执行 `.\.venv\Scripts\python.exe -m harness_example.main`。
 
-入口不读取命令行参数。直接运行 `python -m harness_example.main`，每步缩小可用工具范围，由所选模型生成参数、框架执行工具，完成后从快照续接。工作区固定为 `harness_example/output/demo/`。
+正常运行无需命令行参数。直接运行 `python -m harness_example.main`，每步缩小可用工具范围，由所选模型生成参数、框架执行工具，完成后从快照续接。工作区固定为 `harness_example/output/demo/`。
 
-随后执行独立的记忆与历史专题，产物放在 `harness_example/output/memory-history/`。MCP 服务由客户端自动启动和关闭，不需要先开一个服务终端。
+随后在同一文件中执行 `demonstrate_memory()` 和 `demonstrate_history()`，产物放在 `harness_example/output/memory-history/`。MCP 服务由客户端自动启动和关闭，不需要先开一个服务终端。
 
-之前需要 WSL，是因为内置 `LocalWorkspaceBackend` 的进程组清理和 Harness `Shell` 的命令包装使用 POSIX 接口。现在 Windows 通过独立的 [local_workspace.py](local_workspace.py) 适配本地文件和受限 `echo` 工具，其他 Harness 能力仍走原来的源码。Linux/macOS 继续使用内置后端。这是示例的适配层，没有修改库的 Windows 支持范围。
+之前需要 WSL，是因为内置 `LocalWorkspaceBackend` 的进程组清理和 Harness `Shell` 的命令包装使用 POSIX 接口。现在 Windows 通过 `main.py` 中的 `NativeWorkspaceBackend`、`NativeWorkspace` 和 `NativeShell` 适配本地文件和受限 `echo` 工具，其他 Harness 能力仍走原来的源码。Linux/macOS 继续使用内置后端。这是示例的适配层，没有修改库的 Windows 支持范围。
 
 ## 环境
 
@@ -73,7 +73,7 @@ Ollama 和 Python 都在当前机器运行，默认地址为 `http://localhost:1
 
 Windows 的 `NativeShell` 只演示 `run_command("echo harness-demo")` 一类简单命令，真实调用 `cmd.exe`，不支持任意脚本或 POSIX 后台 Shell。它通过能力接口提供工具，便于观察如何替换平台相关实现。文件记忆使用 FileStore 的纯文件后端路径，不执行 `mv` 等 Unix 命令。
 
-Harness 不要求每个 Agent 都有工作区。本例因为组合了 FileSystem、Shell、RepoContext、Skills 和文件记忆才使用它；独立的 [RAG](rag.py) 和 [MCP 客户端](mcp_client.py) 没有挂 `LocalWorkspace`。换成数据库记忆、HTTP 检索和远程工具，也可以完全不接触本地文件。
+Harness 不要求每个 Agent 都有工作区。本例因为组合了 FileSystem、Shell、RepoContext、Skills 和文件记忆才使用它；同文件的 `run_rag()` 和 `run_mcp()` 没有挂 `LocalWorkspace`。换成数据库记忆、HTTP 检索和远程工具，也可以完全不接触本地文件。
 
 ### 2. Skills：先展示目录，按需加载正文
 
@@ -85,13 +85,13 @@ Harness 不要求每个 Agent 都有工作区。本例因为组合了 FileSystem
 
 主流程明确使用 `namespace=lambda ctx: ctx.deps.user_id`，身份由应用提供。`conversation_id` 标识一次对话，`user_id` 标识这个用户的长期记忆空间，二者不能混用。
 
-[demonstrate_memory](memory_history.py) 做两个真实运行：第一个 Agent 调用 `write_memory` 写入学习偏好；随后创建全新的 Agent，不传旧 `message_history` 或 `conversation_id`，但使用相同文件后端和用户 namespace。第二个 Agent 从 Memory 注入的笔记里回答偏好。测试还检查另一个用户看不到该笔记。
+`demonstrate_memory()` 做两个真实运行：第一个 Agent 调用 `write_memory` 写入学习偏好；随后创建全新的 Agent，不传旧 `message_history` 或 `conversation_id`，但使用相同文件后端和用户 namespace。第二个 Agent 从 Memory 注入的笔记里回答偏好。测试还检查另一个用户看不到该笔记。
 
 观察 `memory_new_conversation_request.json`，就能看到新对话实际接收了什么。Memory 保存的是明确写入的笔记，不会自动把全部聊天历史变成长期记忆。
 
 ### 4. History：完整档案与模型本次可见窗口分开
 
-应用通过 `agent.run(message_history=...)` 提供历史。[load_history](memory_history.py) 演示从 JSON 档案读取并校验统一消息类型；真实系统可以在这一层换成数据库查询。
+应用通过 `agent.run(message_history=...)` 提供历史。`load_history()` 演示从 JSON 档案读取并校验统一消息类型；真实系统可以在这一层换成数据库查询。
 
 `demonstrate_history()` 分别展示：
 
@@ -109,7 +109,7 @@ Harness 不要求每个 Agent 都有工作区。本例因为组合了 FileSystem
 
 ### 5. RAG：把已有检索系统作为依赖接进来
 
-[rag.py](rag.py) 的核心链路是 `KnowledgeRAG` → `search_knowledge` → `ctx.deps.retrieval.search()` → 带 `source` 的证据 → 模型回答。能力提供工具和使用指令，检索系统负责找到资料。
+`main.py` 中的检索链路是 `KnowledgeRAG` → `search_knowledge` → `ctx.deps.retrieval.search()` → 带 `source` 的证据 → 模型回答。能力提供工具和使用指令，检索系统负责找到资料。
 
 默认 `InMemoryRetrievalService` 只做关键词匹配，便于直接运行，不包含 embedding 或向量数据库。外界已有 RAG 时，实现 `RetrievalService.search()` 接自己的 SDK 即可。若是 HTTP 服务，`HttpRetrievalService` 使用这个示例约定：
 
@@ -118,39 +118,24 @@ POST 请求：{"query": "问题", "limit": 3}
 JSON 响应：{"hits": [{"title": "标题", "text": "原文片段", "source": "文档地址或ID"}]}
 ~~~
 
-接入示例（把地址换成实际服务）：
+接入外部服务时，在本文件底部的 `main()` 中使用已有适配器，把地址换成实际服务，再按 **Debug Harness** F5：
 
 ~~~python
-import asyncio
-import httpx
-
-from harness_example.rag import HttpRetrievalService, run_rag
-
-
 async def main() -> None:
     async with httpx.AsyncClient(timeout=20) as client:
         service = HttpRetrievalService(client, 'http://localhost:8000/search')
-        await run_rag('你的业务问题', retrieval=service)
-
-
-asyncio.run(main())
+        await run_example(retrieval=service)
 ~~~
 
-鉴权头由调用方的 HTTP client 配置；不同 JSON 格式在适配器里转换。完整流程 `run_example(retrieval=service)` 也支持同一个服务对象。检索返回空结果时，模型应说明缺少依据。
+鉴权头由调用方的 HTTP client 配置；不同 JSON 格式在适配器里转换。仅观察检索时，可将调用换为 `await run_rag('你的业务问题', retrieval=service)`。检索返回空结果时，模型应说明缺少依据。
 
 ### 6. MCP：工具的跨进程协议
 
-[mcp_server.py](mcp_server.py) 用 SDK 的 `FastMCP` 定义两个工具：`mcp_add`、`mcp_echo`。[mcp_client.py](mcp_client.py) 用当前 Python 启动服务，通过 `StdioTransport`、`MCPToolset` 和核心 `MCP` 能力注册到 Agent；`async with agent` 管理连接生命周期。
+`main.py` 用 SDK 的 `FastMCP` 定义两个工具：`mcp_add`、`mcp_echo`。`create_mcp_capability()` 用当前 Python 启动同一个 `main.py` 的子进程，通过 `StdioTransport`、`MCPToolset` 和核心 `MCP` 能力注册到 Agent；`async with agent` 管理连接生命周期。子进程的 `--mcp-server` 是内部启动标记，用来只启动服务端，不是用户选择演示的模式参数。
 
-完整流程实际调用 `mcp_add(7, 5)`，独立客户端再演示回显。MCP server 的 stdout 专供协议通信，不能随意 `print`。MCP 是连接工具的协议，RAG 是检索后生成回答的方式，二者也能组合：检索工具可以由 MCP server 提供。
+完整流程实际调用 `mcp_add(7, 5)`，`run_mcp()` 还演示回显。MCP server 的 stdout 专供协议通信，不能随意 `print`。MCP 是连接工具的协议，RAG 是检索后生成回答的方式，二者也能组合：检索工具可以由 MCP server 提供。
 
-可分别运行专题，不需要模式参数：
-
-~~~bash
-python -m harness_example.memory_history
-python -m harness_example.rag
-python -m harness_example.mcp_client
-~~~
+各专题函数都在 `main.py`。只观察某个专题时，临时替换底部 `main()` 的调用，继续使用 **Debug Harness** F5；示例见 [调试指南](DEBUGGING.md#选择专题与运行测试)。
 
 ## 任务拆解、依赖与进度
 
@@ -173,22 +158,23 @@ python -m harness_example.mcp_client
 
 运行后对照 `output/demo/plan.json` 的最终四项任务与 `plan_history.json`：后者在每次计划工具执行后保存 `{tool, items}`，可以看到依赖建立、阻塞、解锁和完成的全过程。实际计划仍保存在 SQLite `plan.db`，两个 JSON 文件供学习和检查使用。
 
-## 文件阅读顺序
+## 阅读 main.py 的顺序
 
-| 文件 | 观察重点 |
+先看文件靠前的 `build_agent()`：`Planning(...)` 直接列在 `Agent(capabilities=[...])` 中，能同时看到它与其他能力的组合。其余实现按下面的符号定位，无需在示例模块之间跳转。
+
+| 符号 | 观察重点 |
 | --- | --- |
-| [quickstart.py](quickstart.py) | Agent + Planning 的最小关系 |
-| [model_config.py](model_config.py) | API Key 与本地模型的统一选择 |
-| [main.py](main.py) 的 `build_agent` | 工作区、能力组合、依赖与事件 |
-| [local_workspace.py](local_workspace.py) | Windows 文件后端和原生命令适配；平台选择边界 |
-| [main.py](main.py) 的 `Walkthrough` | 工具范围、执行成功后推进、提前输出重试 |
-| [main.py](main.py) 的 `run_example` | 保存快照、读回历史、真正发起下一轮 run |
-| [memory_history.py](memory_history.py) | 跨 conversation 记忆、历史加载、滑窗、增量摘要 |
-| [rag.py](rag.py) | 自定义能力如何接入已有检索 API |
-| [mcp_server.py](mcp_server.py)、[mcp_client.py](mcp_client.py) | 服务定义、工具发现、跨进程调用和连接生命周期 |
-| [tool_descriptions.py](tool_descriptions.py) | 内置工具的中文用途，保留上游参数模式 |
-| [offline_model.py](offline_model.py) | 自动化测试使用的固定模型决策，验证普通与流式执行路径 |
-| [advanced.py](advanced.py) | CodeMode、DynamicWorkflow、BackgroundTools 独立实验 |
+| `build_agent` | 工作区、Planning 和其他能力、依赖与事件 |
+| `create_model` | API Key 与本地模型的统一选择 |
+| `LESSON_STEPS`、`Walkthrough` | 任务拆解、工具范围、执行成功后推进、提前输出重试 |
+| `NativeWorkspaceBackend`、`NativeWorkspace`、`NativeShell` | Windows 文件后端和命令适配；平台选择边界 |
+| `run_example` | 保存快照、读回历史、真正发起下一轮 run |
+| `build_memory_agent`、`demonstrate_memory`、`demonstrate_history` | 跨 conversation 记忆、历史加载、滑窗、增量摘要 |
+| `KnowledgeRAG`、`HttpRetrievalService`、`run_rag` | 自定义能力如何接入已有检索 API |
+| `create_mcp_capability`、`run_mcp`、`mcp_add`、`mcp_echo` | 服务定义、工具发现、跨进程调用和连接生命周期 |
+| `TOOL_DESCRIPTIONS` | 内置工具的中文用途，保留上游参数模式 |
+| `make_offline_model`、`make_reviewer_model` | 自动化测试使用的固定模型决策，验证普通与流式执行路径 |
+| `run_lesson`、`code_mode`、`workflow`、`background` | CodeMode、DynamicWorkflow、BackgroundTools 实验 |
 
 ## 完整流程覆盖什么
 
@@ -237,17 +223,14 @@ POSIX 组合包含 20 个通用 Harness 能力；Windows 组合包含 19 个，�
 
 ## 进阶组件
 
-改变调用方式的能力分成三个独立实验，避免一个大组合遮蔽源码路径：
+三个进阶实验也在 `main.py`。临时将底部 `main()` 改为下面的调用，再使用同一个 **Debug Harness** F5：
 
-~~~bash
-python -m harness_example.advanced --lesson code-mode
-python -m harness_example.advanced --lesson workflow
-python -m harness_example.advanced --lesson background
-# 固定决策，实际执行组件：
-python -m harness_example.advanced --lesson code-mode --offline
+~~~python
+async def main() -> None:
+    await run_lesson('code-mode')
 ~~~
 
-CodeMode 演示模型生成的 Python 经 Monty 调用工具；DynamicWorkflow 演示脚本调用子 Agent；BackgroundTools 演示任务提交、独立工作、结果注入。使用上面的 Python 命令分别运行实验。
+`run_lesson` 可选 `'code-mode'`、`'workflow'` 或 `'background'`，分别演示 Monty 调用工具、脚本调度子 Agent、后台任务与结果注入。默认通过 `create_model()` 选择 DeepSeek 或本地 Ollama；加 `offline=True` 固定模型决策，仍执行真实能力和工具。观察完成后恢复默认 `main()` 的完整流程、记忆和历史调用。
 
 Coder 的组合继续看 [coder 预设](../pydantic_harness_example/README.md) 与 [Coder 源码](../src/pydantic_ai_harness/pydantic_ai_harness/coder/_capability.py)。云搜索、SaaS、云沙箱、计费和耐久引擎需要各自的服务环境，不在本地流程中伪造。完整能力列表见 [Harness 总览](../docs/harness/index.md)，构造参数见 [参数索引](../pydantic_harness_example/PARAMETERS.md)。模型审阅和缓存统计等专题可按对应文档继续学习。
 

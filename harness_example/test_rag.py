@@ -7,7 +7,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from harness_example.rag import HttpRetrievalService, InMemoryRetrievalService, KnowledgeHit, KnowledgeResults, run_rag
+from harness_example.main import HttpRetrievalService, InMemoryRetrievalService, KnowledgeHit, KnowledgeResults, run_rag
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,

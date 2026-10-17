@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from harness_example import mcp_client
-from harness_example.mcp_client import create_mcp_capability
+from harness_example import main as example
+from harness_example.main import create_mcp_capability
 from pydantic_ai import Agent
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
@@ -70,9 +70,9 @@ def test_client_requires_both_tools(monkeypatch: pytest.MonkeyPatch, tool_names:
             return ModelResponse(parts=[calls[name] for name in tool_names])
         return ModelResponse(parts=[TextPart('声称两个工具都已执行。')])
 
-    monkeypatch.setattr(mcp_client, 'create_model', lambda: FunctionModel(respond))
+    monkeypatch.setattr(example, 'create_model', lambda: FunctionModel(respond))
     if len(tool_names) == 2:
-        asyncio.run(mcp_client.main())
+        asyncio.run(example.run_mcp())
     else:
         with pytest.raises(RuntimeError, match='mcp_add 和 mcp_echo'):
-            asyncio.run(mcp_client.main())
+            asyncio.run(example.run_mcp())
