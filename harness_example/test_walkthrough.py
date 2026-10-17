@@ -53,7 +53,7 @@ def test_offline_walkthrough_and_snapshot_continuation(tmp_path: Path) -> None:
     async def exercise() -> None:
         result = await run_example(workspace=tmp_path, model=make_offline_model(), reviewer_model=make_reviewer_model())
         evidence = json.loads((tmp_path / 'coverage.json').read_text(encoding='utf-8'))
-        assert len(evidence['completed_steps']) == 16
+        assert len(evidence['completed_steps']) == len(LESSON_STEPS)
         assert evidence['completed_tools'].count('write_file') == 1
         assert evidence['completed_tools'].count('write_memory') == 1
         assert evidence['successful_delegations'] == 1
@@ -77,9 +77,9 @@ def test_offline_walkthrough_and_snapshot_continuation(tmp_path: Path) -> None:
         first_events = await store.list_events(run_id=runs[0].run_id)
         second_events = await store.list_events(run_id=runs[1].run_id)
         completed = [event for event in first_events if event.kind == 'tool_call_completed']
-        assert len(completed) == 16
+        assert len(completed) == len(LESSON_STEPS)
         assert not any(event.kind.startswith('tool_call') for event in second_events)
-        assert result.usage.requests == 19  # 17 parent requests, one child and one resumed request.
+        assert result.usage.requests == len(LESSON_STEPS) + 3  # Tools, final answer, child and resumed request.
         assert not any(isinstance(part, ToolCallPart) for message in result.new_messages() for part in message.parts)
         for event in completed:
             assert event.tool_call_id is not None
@@ -103,6 +103,8 @@ def test_offline_walkthrough_and_snapshot_continuation(tmp_path: Path) -> None:
             if isinstance(part, ToolReturnPart)
         ]
         assert any(part.content == '[旧工具结果已清理，可搜索历史]' for part in returns)
+        assert any(part.tool_name == 'mcp_add' and '12' in str(part.content) for part in returns)
+        assert any(part.tool_name == 'search_knowledge' and 'source' in str(part.content) for part in returns)
         limited = [
             part.content
             for part in returns
@@ -245,7 +247,7 @@ def test_final_plan_requires_completed_status(tmp_path: Path) -> None:
             return ModelResponse(
                 parts=[ToolCallPart('write_plan', {'items': [{'content': '学习', 'status': 'in_progress'}]})]
             )
-        assert len(deps.completed_steps) == 14
+        assert len(deps.completed_steps) == len(LESSON_STEPS) - 2
         assert any(
             isinstance(part, RetryPromptPart) and 'completed' in str(part.content)
             for message in messages

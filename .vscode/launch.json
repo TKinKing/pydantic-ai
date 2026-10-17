@@ -6,6 +6,7 @@
             "type": "debugpy",
             "request": "launch",
             "module": "harness_example.main",
+            "subProcess": true,
             "cwd": "${workspaceFolder}",
             "python": "${input:harnessWslPython}",
             "console": "integratedTerminal",
@@ -15,6 +16,61 @@
                 "PYTHONUTF8": "1",
                 "OLLAMA_MODEL": "${input:harnessOllamaModel}",
                 "OLLAMA_BASE_URL": "${input:harnessWslOllamaUrl}"
+            }
+        },
+        {
+            "name": "Python: Harness 记忆与历史 (WSL)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "harness_example.memory_history",
+            "cwd": "${workspaceFolder}",
+            "python": "${input:harnessWslPython}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "PYTHONUTF8": "1",
+                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
+                "OLLAMA_BASE_URL": "${input:harnessWslOllamaUrl}"
+            }
+        },
+        {
+            "name": "Python: Harness 外部 RAG",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "harness_example.rag",
+            "cwd": "${workspaceFolder}",
+            "python": "${input:harnessWslPython}",
+            "windows": {
+                "python": "${workspaceFolder}/.venv/Scripts/python.exe"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "PYTHONUTF8": "1",
+                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
+                "OLLAMA_BASE_URL": "${input:learningOllamaUrl}"
+            }
+        },
+        {
+            "name": "Python: Harness MCP 客户端与服务端",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "harness_example.mcp_client",
+            "cwd": "${workspaceFolder}",
+            "python": "${input:harnessWslPython}",
+            "windows": {
+                "python": "${workspaceFolder}/.venv/Scripts/python.exe"
+            },
+            "subProcess": true,
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "PYTHONUTF8": "1",
+                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
+                "OLLAMA_BASE_URL": "${input:learningOllamaUrl}"
             }
         },
         {

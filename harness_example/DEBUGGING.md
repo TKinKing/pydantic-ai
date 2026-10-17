@@ -1,6 +1,6 @@
 # Harness 源码调试
 
-完整流程入口是 `python -m harness_example.main`，无需参数。`main.py` 顶部的 `DEEPSEEK_API_KEY` 有值时连接 DeepSeek，否则连接本地 Ollama，执行逐步导览和快照续接。先在例子的 `create_model`、`build_agent` 放断点，再进入核心和 Harness 源码。
+完整流程入口是 `python -m harness_example.main`，无需参数。[model_config.py](model_config.py) 的 `DEEPSEEK_API_KEY` 有值时连接 DeepSeek，否则连接本地 Ollama。先在 `create_model`、`build_agent` 放断点，再进入核心和 Harness 源码。完整入口也会执行跨会话记忆和长历史专题。
 
 ## F5
 
@@ -13,6 +13,10 @@
 Windows Ollama + WSL NAT 时，用 `ip -4 route show default` 的网关地址组成 `http://网关:11434/v1`。这台机器当前可用 `http://172.31.192.1:11434/v1`；WSL 重启后可能改变。
 
 配置使用 `justMyCode: false`。源码依赖采用 editable 安装，因此能进入当前仓库，而不是另一份已发布的包。
+
+单独学习时可选 **Python: Harness 记忆与历史 (WSL)**、**Python: Harness 外部 RAG**、**Python: Harness MCP 客户端与服务端**，都不传命令行参数。RAG、MCP 专题在 Windows 原生 Python 下也能运行；记忆专题的文件后端仍使用 WSL。
+
+完整流程和 MCP 配置已启用 `subProcess: true`。在 [mcp_server.py](mcp_server.py) 的 `return a + b` 直接打断点，服务端会作为子进程调试会话出现；F11 不会跨 RPC 自动跳进服务端。工具请求超时为 300 秒，暂停超过这个时间后需重新运行。
 
 ## 源码路线
 
@@ -30,6 +34,10 @@ Windows Ollama + WSL NAT 时，用 `ip -4 route show default` 的网关地址组
 | 10 | [ToolOutputLimits](../src/pydantic_ai_harness/pydantic_ai_harness/tool_output_limits/_capability.py)、[Compaction](../src/pydantic_ai_harness/pydantic_ai_harness/compaction/) | 新工具结果限长与旧历史压缩的区别 |
 | 11 | [StepPersistence](../src/pydantic_ai_harness/pydantic_ai_harness/step_persistence/_capability.py)、[continue_run](../src/pydantic_ai_harness/pydantic_ai_harness/step_persistence/_helpers.py) | 保存快照、读回消息、后续 run |
 | 12 | [run_interactive](../pydantic_harness_example/main.py)、[AskUserToolset.ask_user_question](../src/pydantic_ai_harness/pydantic_ai_harness/ask_user/_toolset.py) | 延迟请求、终端收集回答、同一 conversation 恢复 |
+| 13 | [memory_history.py](memory_history.py)：`build_memory_agent`、`demonstrate_memory` | 新 Agent、新 conversation、相同用户 namespace，观察持久记忆注入 |
+| 14 | [memory_history.py](memory_history.py)：`load_history`、`capture_window`、`compact_now` 调用处 | 对比一万条档案与模型实际窗口，进入 [SummarizingCompaction](../src/pydantic_ai_harness/pydantic_ai_harness/compaction/_summarizing_compaction.py) 看摘要更新 |
+| 15 | [rag.py](rag.py)：`KnowledgeRAG.get_toolset` 中的 `search_knowledge` | 从工具进入 `ctx.deps.retrieval`，查看片段和来源怎样返回模型 |
+| 16 | [mcp_client.py](mcp_client.py)：`create_mcp_capability`；[mcp_server.py](mcp_server.py)：`mcp_add` | 工具发现、跨进程调用、结果回传；核心入口是 [MCPToolset](../pydantic_ai_slim/pydantic_ai/mcp.py) |
 
 建议展开 `ctx.deps`、`ctx.usage`、工具参数、`messages` 和工具结果。能力列表不是只从上到下执行一次的流水线：不同钩子由核心在不同时机调用。
 

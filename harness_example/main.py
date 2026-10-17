@@ -4,16 +4,13 @@ import asyncio
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from os import getenv, name as platform_name
+from os import name as platform_name
 from pathlib import Path
 
 from pydantic_ai import Agent, AgentRunResult, ModelRetry, RunContext
 from pydantic_ai.capabilities import AbstractCapability, Hooks, LocalWorkspace, PrepareTools, ValidatedToolArgs
 from pydantic_ai.messages import ModelRequest, ToolCallPart, UserPromptPart
 from pydantic_ai.models import Model, ModelRequestContext
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.deepseek import DeepSeekProvider
-from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.settings import ModelSettings, ToolOrOutput
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import UsageLimits
@@ -53,15 +50,18 @@ from pydantic_ai_harness.system_reminders import Reminder
 from pydantic_ai_harness.tool_output_limits import Band, Truncate
 
 if __package__:
+    from .mcp_client import create_mcp_capability
+    from .memory_history import demonstrate_history, demonstrate_memory
+    from .model_config import create_model
+    from .rag import InMemoryRetrievalService, KnowledgeRAG, RetrievalService
     from .tool_descriptions import TOOL_DESCRIPTIONS
 else:
+    from mcp_client import create_mcp_capability
+    from memory_history import demonstrate_history, demonstrate_memory
+    from model_config import create_model
+    from rag import InMemoryRetrievalService, KnowledgeRAG, RetrievalService
     from tool_descriptions import TOOL_DESCRIPTIONS
 
-# 有值时使用 DeepSeek；留空时使用本地 Ollama。也可在 VS Code 的 .env 中设置。
-DEEPSEEK_API_KEY = getenv('DEEPSEEK_API_KEY', '')
-DEEPSEEK_MODEL = 'deepseek-v4-flash'  # 当前仓库支持的 Flash 接口别名。
-OLLAMA_MODEL = getenv('OLLAMA_MODEL', 'qwen2.5-harness:14b-16k')
-OLLAMA_BASE_URL = getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')
 WORKSPACE = Path(__file__).resolve().parent / 'output' / 'demo'
 REQUEST_LIMIT = 40
 
@@ -81,6 +81,8 @@ LESSON_STEPS = (
     LessonStep('list_directory', '列出当前目录，path="."。', ('path', '.')),
     LessonStep('read_file', '读取 lesson.txt。', ('path', 'lesson.txt')),
     LessonStep('load_capability', '加载 study-notes 技能，id="study-notes"。', ('id', 'study-notes')),
+    LessonStep('search_knowledge', '检索外部知识，query="Harness"；记录结果中的来源。', ('query', 'Harness')),
+    LessonStep('mcp_add', '通过 MCP 服务计算 7 加 5，a=7、b=5。'),
     LessonStep(
         'ask_user_question',
         '询问学习方式，只问一个问题，提供两个选项。参数形状：'
@@ -110,6 +112,8 @@ class LearningDeps:
     """应用状态通过 ctx.deps 注入，不让模型填写用户身份或完成记录."""
 
     learner: str = '中文学习者'
+    user_id: str = 'learner-001'
+    retrieval: RetrievalService = field(default_factory=InMemoryRetrievalService)
     tools: dict[str, ToolDefinition] = field(default_factory=dict[str, ToolDefinition])
     completed_steps: list[str] = field(default_factory=list[str])
     completed_tools: list[str] = field(default_factory=list[str])
@@ -245,17 +249,6 @@ def prepare_workspace(workspace: Path) -> None:
     )
 
 
-def create_model() -> OpenAIChatModel:
-    """主代理和审阅子代理共用此配置；只根据 Key 是否为空选择服务."""
-    if api_key := DEEPSEEK_API_KEY.strip():
-        return OpenAIChatModel(
-            DEEPSEEK_MODEL,
-            provider=DeepSeekProvider(api_key=api_key),
-            settings={'thinking': False},  # 教学流程观察工具调用，不开启深度思考。
-        )
-    return OpenAIChatModel(OLLAMA_MODEL, provider=OllamaProvider(base_url=OLLAMA_BASE_URL))
-
-
 def build_agent(
     *,
     workspace: Path = WORKSPACE,
@@ -263,7 +256,7 @@ def build_agent(
     reviewer_model: Model | None = None,
     guided: bool = True,
 ) -> tuple[Agent[LearningDeps, str], FileStepStore]:
-    """二十个 Harness 能力可以逐个设断点；测试只替换 Model，不替换工具."""
+    """组合内置能力、自定义 RAG 和 MCP；测试只替换 Model，不替换工具."""
     store = FileStepStore(workspace / 'steps')
     if model is None:
         model = create_model()
@@ -317,11 +310,13 @@ def build_agent(
             ClampOversizedMessages(max_part_chars=12_000),
             ClearToolResults(max_messages=12, keep_pairs=3, placeholder='[旧工具结果已清理，可搜索历史]'),
             SlidingWindowCompaction(max_messages=24, keep_messages=16),
-            Memory(FileStore('memory'), max_tokens=600),
+            Memory(FileStore('memory'), namespace=lambda ctx: ctx.deps.user_id, max_tokens=600),
             FileSystem(tools=['read_file', 'write_file', 'list_directory'], content_hashes=False),
             Shell(tools=['run_command'], allowed_commands=['echo'], denied_operators=['>', '>>', '|', ';', '&&']),
             RepoContext(),
             Skills('skills'),
+            KnowledgeRAG(),  # 自定义能力：工具通过 deps 调用应用提供的检索服务。
+            create_mcp_capability(),  # 核心 MCP 能力：启动并连接独立的 stdio 服务进程。
             Planning(store=SqlitePlanStore(str(workspace / 'plan.db')), tools=['write_plan', 'read_plan']),
             SystemReminders(reminders=[Reminder('保持中文解释，完成后更新计划并给出总结。', interval=4)]),
             AskUser(answerer=answer_user),
@@ -376,6 +371,7 @@ async def run_example(
     workspace: Path = WORKSPACE,
     model: Model | None = None,
     reviewer_model: Model | None = None,
+    retrieval: RetrievalService | None = None,
     guided: bool = True,
     resume: bool = True,
 ) -> AgentRunResult[str]:
@@ -383,6 +379,8 @@ async def run_example(
     prepare_workspace(workspace)
     agent, store = build_agent(workspace=workspace, model=model, reviewer_model=reviewer_model, guided=guided)
     deps = LearningDeps()
+    if retrieval is not None:
+        deps.retrieval = retrieval
     limits = UsageLimits(request_limit=REQUEST_LIMIT, tool_calls_limit=32)
     async with agent:
         result = await agent.run(
@@ -418,6 +416,7 @@ async def run_example(
         'successful_delegations': deps.successful_delegations,
         'continued_from_snapshot': resume,
         'registered_harness_capabilities': 20,
+        'extensions': ['KnowledgeRAG', 'MCP'],
         'note': '工具成功返回与能力注册分别记录；不代表每个护栏拒绝或压缩分支都已触发。',
     }
     (workspace / 'coverage.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -436,7 +435,13 @@ async def main() -> None:
         )
     model = create_model()
     print(f'[模型] 服务={model.system}；模型={model.model_name}；接口={model.base_url}')
+    print('\n=== 完整工具流程：Workspace / Skills / Memory / RAG / MCP ===')
     await run_example(model=model)
+    study_workspace = WORKSPACE.parent / 'memory-history'
+    print('\n=== 跨 conversation 记忆：同一用户，新的 Agent 和对话 ===')
+    await demonstrate_memory(workspace=study_workspace, model=model)
+    print('\n=== 历史：一万条档案的滑窗，以及小批次增量摘要 ===')
+    await demonstrate_history(workspace=study_workspace, model=model)
 
 
 if __name__ == '__main__':

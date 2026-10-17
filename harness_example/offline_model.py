@@ -29,6 +29,8 @@ def make_offline_model() -> FunctionModel:  # 每个运行创建新模型，避�
         ToolCallPart('list_directory', {'path': '.'}),  # 发现学习工作区的文件。
         ToolCallPart('read_file', {'path': 'lesson.txt'}),  # 读取真实文件，内容由 main.py 初始化。
         ToolCallPart('load_capability', {'id': 'study-notes'}),  # 按需加载技能正文，而非把所有技能塞入初始提示。
+        ToolCallPart('search_knowledge', {'query': 'Harness'}),  # 通过注入的检索服务取得带来源的知识。
+        ToolCallPart('mcp_add', {'a': 7, 'b': 5}),  # 实际跨进程调用 MCP server。
         ToolCallPart(  # 提问也是模型调用工具的一部分。
             'ask_user_question',  # AskUser 负责问题模式校验，回答界面由应用提供。
             {  # AskUser 的工具参数对象。
@@ -79,7 +81,7 @@ def make_offline_model() -> FunctionModel:  # 每个运行创建新模型，避�
             {'items': [{'content': '学习 Harness 并写总结', 'status': 'completed'}]},  # 将当前计划置为完成。
         ),  # 完成计划。
         ToolCallPart('read_plan', {}),  # 读回最终计划，确认任务状态。
-    ]  # 一共十六次真实工具调用；无需模型服务。
+    ]  # 十八次真实工具调用，包括独立 MCP 进程；无需模型服务。
     step = 0  # 演示计数存在模型闭包中，不依赖会被压缩的消息历史。
 
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:  # 与 FunctionModel 要求的签名一致。

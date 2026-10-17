@@ -18,4 +18,7 @@ TOOL_DESCRIPTIONS: dict[str, str] = {  # 工具名称必须与当前源码注册
     'read_tool_result': '按 handle 分页读取溢出保存的工具结果；offset/limit 控制范围，pattern 可筛选文本。',  # 所属能力：ToolOutputLimits。
     'learning_progress': '计算学习进度；completed 是已完成数，total 是总数，用户名称从依赖注入取得。',  # 自定义工具。
     'long_reference': '返回一份较长的中文参考资料，用来观察 ToolOutputLimits 如何缩短工具结果。',  # 自定义工具。
+    'search_knowledge': '检索应用注入的知识库；query 是问题，返回内容与来源，回答时引用来源。',  # 自定义 RAG 能力。
+    'mcp_add': '通过独立 MCP 服务计算 a 加 b；参数是两个整数。',  # 核心 MCP 能力提供的远程工具。
+    'mcp_echo': '通过独立 MCP 服务返回 text，用于观察请求和响应。',  # MCP 教学服务。
 }  # 本例启用的工具均有中文说明；新增工具时也应扩充这个索引。

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from harness_example import main as example
+from harness_example import model_config as example
 from pydantic_ai import Agent
 from pydantic_ai.settings import ToolOrOutput
 
