@@ -8,13 +8,13 @@
 .\.venv\Scripts\python.exe -m pydantic_harness_example.main
 ~~~
 
-VS Code 的“运行和调试”中选择 **Python: Harness 学习示例 (Ollama)**，按 **F5**，选择组合、压缩策略、模型和地址。在集成终端输入问题和回答。
+在终端运行上面的命令，输入问题和回答。组合与压缩策略通过下方命令行参数选择，模型和地址通过环境变量设置。需要直接 F5 调试完整流程时，选择 **Debug Harness**，入口说明见 [综合示例](../harness_example/README.md)。
 
 本例沿用 [核心 Agent 示例](../pydantic_agent_example/main.py) 的本地模型、学习者依赖和生命周期日志，使用 Harness 自带的 **AskUser** 替换手写追问工具。当前没有统一的 `Harness(...)` 类；能力通过 `Agent(capabilities=[...])` 组合。
 
 ## 已有示例与参数索引
 
-仓库已有 [coding_agent.py](../src/pydantic_ai_harness/examples/coding_agent.py) 和 [research_agent.py](../src/pydantic_ai_harness/examples/research_agent.py)，默认使用云模型。本例补充本地 Ollama、追问与恢复、Windows/WSL 调试配置，并展开所用能力的构造参数。
+仓库已有 [coding_agent.py](../src/pydantic_ai_harness/examples/coding_agent.py) 和 [research_agent.py](../src/pydantic_ai_harness/examples/research_agent.py)，默认使用云模型。本例补充本地 Ollama、追问与恢复、Windows/WSL 运行命令，并展开所用能力的构造参数。
 
 [PARAMETERS.md](PARAMETERS.md) 列出当前版本顶层导出的全部 57 个能力构造器及辅助对象的参数、类型和默认值，包括需要外部服务的能力。它是参数索引；运行预设覆盖下表的组合，不会同时启动全部能力。
 
@@ -67,8 +67,8 @@ ollama list
 
 | 配置 | 默认值 | 修改位置 |
 | --- | --- | --- |
-| 模型 | `qwen2.5-harness:14b-16k` | `OLLAMA_MODEL` / F5 输入 |
-| 地址 | `http://localhost:11434/v1` | `OLLAMA_BASE_URL` / F5 输入 |
+| 模型 | `qwen2.5-harness:14b-16k` | `OLLAMA_MODEL` 环境变量 |
+| 地址 | `http://localhost:11434/v1` | `OLLAMA_BASE_URL` 环境变量 |
 | 温度 | `0.2` | `ExampleConfig.temperature` |
 | 单次输出 token 上限 | `1024` | `ExampleConfig.max_tokens` |
 | 累计模型请求上限 | `16` | `ExampleConfig.request_limit` |
@@ -84,13 +84,13 @@ $env:OLLAMA_BASE_URL = 'http://localhost:11434/v1'
 .\.venv\Scripts\python.exe -m pydantic_harness_example.main
 ~~~
 
-`build_capabilities()` 展开每个已用能力的全部构造参数，包括继承的 `id`、`description`、`defer_loading`，可以逐项修改后 F5 对照。全包参数见 [参数索引](PARAMETERS.md)。
+`build_capabilities()` 展开每个已用能力的全部构造参数，包括继承的 `id`、`description`、`defer_loading`，可以逐项修改后重新运行命令对照。全包参数见 [参数索引](PARAMETERS.md)。
 
-## VS Code 断点
+## 源码观察点
 
-安装 Microsoft 的 Python 和 Python Debugger 扩展，以仓库根目录打开工作区。[launch.json](../.vscode/launch.json) 使用模块入口，因此终端也应从根目录用 `python -m ...` 启动。
+本目录示例从仓库根目录用 `python -m pydantic_harness_example.main` 运行，终端接受 `input()` 回答。下面列出追问和恢复流程的关键位置。
 
-`integratedTerminal` 接受 `input()`；调试控制台不用于回答问题。`justMyCode: false` 允许单步进入框架源码。Windows 配置使用 `.venv/Scripts/python.exe`。
+仓库的 [launch.json](../.vscode/launch.json) 只保留 **Debug Harness** 和 **Debug Agent**，分别启动综合 Harness 示例与基础 Agent 示例；本目录通过命令行运行。直接 F5 的源码单步说明见 [综合示例调试指南](../harness_example/DEBUGGING.md)。
 
 | 断点位置 | 观察内容 |
 | --- | --- |
@@ -119,7 +119,7 @@ $env:OLLAMA_BASE_URL = 'http://localhost:11434/v1'
 7. `cache_ttl` 是缓存提示，不表示 Ollama 具备对应云端缓存服务。
 8. `Coder` 自带文件、Shell、仓库上下文、压缩和输出限制，不再叠加 `context`。`sub_agents=False` 关闭委派；改为 `True` 可观察 `delegate_task`，其模型继承父 Agent。`Coder(workspace=...)` 已弃用且忽略，目录由 `LocalWorkspace` 设置。
 
-## Coder：WSL/Linux 运行和调试
+## Coder：WSL/Linux 运行
 
 `LocalWorkspaceBackend` 在 Windows 原生 Python 下实际报错：
 
@@ -141,7 +141,7 @@ export OLLAMA_BASE_URL="http://$(ip -4 route show default | awk '{print $3}'):11
 
 Windows Ollama 的监听地址及防火墙需允许 WSL 访问。若 Ollama 运行在 WSL 内，或镜像网络可用，地址可以是 `http://localhost:11434/v1`。
 
-VS Code 安装 **WSL** 扩展，选择“在 WSL 中重新打开文件夹”，在 WSL 中安装 Python 和 Python Debugger 扩展。选择 **Python: Harness Coder (Remote - WSL)**，F5 输入 WSL 解释器路径及 Ollama 地址。默认地址为 localhost；NAT 下改成上面命令算出的地址。
+在 VS Code 中运行时，可安装 **WSL** 扩展并选择“在 WSL 中重新打开文件夹”，再在其终端执行上面的命令。Coder 没有独立的 F5 配置；解释器和 Ollama 地址使用命令中的设置。
 
 ## 不连接模型的验证
 

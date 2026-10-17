@@ -2,7 +2,7 @@
 
 **主入口：[main.py](main.py)。有 DeepSeek API Key 时调用 DeepSeek，否则使用本地 Ollama。依次执行 18 步工具流程、跨会话记忆、万条历史滑窗和增量摘要。**
 
-直接调试：在本机 VS Code 打开仓库，在“运行和调试”中选择第一项 **Python: Harness 直接启动 (F5 / Local)**，按 F5。它使用仓库的 `.venv`，自动启动完整例子并暂停在入口，不需要 WSL 或先运行 `just`。断点顺序见 [源码调试指南](DEBUGGING.md)。
+直接调试：在本机 VS Code 打开仓库，在“运行和调试”中选择 **Debug Harness**，按 F5。它使用仓库的 `.venv`，自动启动完整例子并暂停在入口，不需要 WSL 或先运行 `just`。另一个入口 **Debug Agent** 启动 [基础 Agent 示例](../pydantic_agent_example/main.py)。调试列表只保留这两个入口，断点顺序见 [源码调试指南](DEBUGGING.md)。
 
 ## 模型选择
 
@@ -25,14 +25,11 @@ DeepSeek 使用仓库已支持的 `deepseek-v4-flash` 别名，并关闭深度�
 ~~~powershell
 just harness-test   # 运行本目录全部测试，不需要启动 Ollama 或提供真实 API Key
 just harness        # 执行完整例子，按 Key 选择 DeepSeek 或本地 Ollama
-just harness-debug  # 启动 debugpy，等待 VS Code 附加后才执行例子
 ~~~
 
-三条命令都使用当前机器的 Python：Windows 为 `.venv/Scripts/python.exe`，Linux/macOS 为 `.venv/bin/python`。`HARNESS_PYTHON` 环境变量可为 just 命令指定其他本地解释器。
+两条命令都使用当前机器的 Python：Windows 为 `.venv/Scripts/python.exe`，Linux/macOS 为 `.venv/bin/python`。`HARNESS_PYTHON` 环境变量可为 just 命令指定其他本地解释器。
 
 VS Code 的 **终端 → 运行任务** 也提供 `just harness`、`just harness-test`。完整例子不打印运行日志；断点中检查变量，运行后的消息、报告和历史窗口保存在 `output/`。测试结果仍由 pytest 输出。
-
-`just harness-debug` 会等待调试器连接。随后选择 **Python: Harness 附加 just 调试 (Local)** 并按 F5；完整步骤见 [调试指南](DEBUGGING.md)。直接 F5 启动使用第一项 **Python: Harness 直接启动 (F5 / Local)**。
 
 也可以在仓库根目录直接运行原来的 PowerShell 脚本：
 
@@ -226,7 +223,7 @@ python -m harness_example.advanced --lesson background
 python -m harness_example.advanced --lesson code-mode --offline
 ~~~
 
-CodeMode 演示模型生成的 Python 经 Monty 调用工具；DynamicWorkflow 演示脚本调用子 Agent；BackgroundTools 演示任务提交、独立工作、结果注入。VS Code 的 **Harness 进阶组件** 配置可选择实验。
+CodeMode 演示模型生成的 Python 经 Monty 调用工具；DynamicWorkflow 演示脚本调用子 Agent；BackgroundTools 演示任务提交、独立工作、结果注入。使用上面的 Python 命令分别运行实验。
 
 Coder 的组合继续看 [coder 预设](../pydantic_harness_example/README.md) 与 [Coder 源码](../src/pydantic_ai_harness/pydantic_ai_harness/coder/_capability.py)。云搜索、SaaS、云沙箱、计费和耐久引擎需要各自的服务环境，不在本地流程中伪造。完整能力列表见 [Harness 总览](../docs/harness/index.md)，构造参数见 [参数索引](../pydantic_harness_example/PARAMETERS.md)。模型审阅和缓存统计等专题可按对应文档继续学习。
 

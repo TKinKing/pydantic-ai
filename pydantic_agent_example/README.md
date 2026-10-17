@@ -16,7 +16,7 @@
 
 ## VS Code 断点调试
 
-用 VS Code 打开仓库根目录，安装 Microsoft 的 Python 和 Python Debugger 扩展。在“运行和调试”中选择 **Python: Pydantic AI 学习示例 (Ollama)**，设置断点后按 **F5**。启动时输入模型名称和接口地址，默认值可直接按回车确认。
+用 VS Code 打开仓库根目录，安装 Microsoft 的 Python 和 Python Debugger 扩展。在“运行和调试”中选择 **Debug Agent**，按 **F5**，会使用本地 `.venv` 并暂停在入口。继续后在集成终端输入问题和回答。模型和接口地址使用上述默认值，也可在仓库根目录 `.env` 中设置 `OLLAMA_MODEL` 和 `OLLAMA_BASE_URL`，启动时不弹出配置问题。
 
 配置位于 [.vscode/launch.json](../.vscode/launch.json)。`integratedTerminal` 支持交互输入；在底部终端回答问题，调试控制台不接受这里的 `input()`。`justMyCode: false` 允许单步进入框架源码。
 

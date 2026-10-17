@@ -27,7 +27,7 @@ harness-test:
 harness-test:
     @{{ quote(harness_python) }} -X utf8 -m pytest harness_example -q -p no:cacheprovider
 
-# Wait for VS Code's "Python: Harness 附加 just 调试 (Local)" on port 5678.
+# Start a manual debugpy listener on port 5678; use VS Code F5 for direct debugging.
 [windows]
 harness-debug:
     @& ./harness_example/run_ollama.ps1 -Task debug; exit $LASTEXITCODE
