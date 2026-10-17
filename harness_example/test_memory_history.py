@@ -2,10 +2,7 @@
 
 import asyncio
 import json
-import os
 from pathlib import Path
-
-import pytest
 
 from harness_example.memory_history import (
     MEMORY_FACT,
@@ -30,7 +27,6 @@ from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.settings import ToolOrOutput
 
 
-@pytest.mark.skipif(os.name == 'nt', reason='FileStore uses the POSIX LocalWorkspace backend.')
 def test_memory_survives_new_agent_and_conversation_but_not_new_user(tmp_path: Path) -> None:
     """Persist a real tool write and inject it only into the matching user namespace."""
     calls = 0

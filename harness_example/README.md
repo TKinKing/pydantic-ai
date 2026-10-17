@@ -2,7 +2,7 @@
 
 **主入口：[main.py](main.py)。有 DeepSeek API Key 时调用 DeepSeek，否则使用本地 Ollama。依次执行 18 步工具流程、跨会话记忆、万条历史滑窗和增量摘要。**
 
-直接调试：VS Code 用 **Remote - WSL** 打开仓库，在“运行和调试”中选择第一项 **Python: Harness 直接启动 (F5 / WSL)**，按 F5。它会自动启动完整例子并暂停在入口，无需先运行 `just` 或手动启动调试服务。断点顺序见 [源码调试指南](DEBUGGING.md)。
+直接调试：在本机 VS Code 打开仓库，在“运行和调试”中选择第一项 **Python: Harness 直接启动 (F5 / Local)**，按 F5。它使用仓库的 `.venv`，自动启动完整例子并暂停在入口，不需要 WSL 或先运行 `just`。断点顺序见 [源码调试指南](DEBUGGING.md)。
 
 ## 模型选择
 
@@ -14,7 +14,7 @@ DEEPSEEK_API_KEY = getenv('DEEPSEEK_API_KEY', '')
 
 有非空值时，主代理和 reviewer 都使用 DeepSeek；空字符串或只有空白时，都使用原本的本地 Ollama。入口不增加命令行参数。Key 无效或请求失败会直接报错，不自动切回本地模型。
 
-F5 和 `just` 会读取仓库根目录的 `.env`，可在其中设置 `DEEPSEEK_API_KEY=你的密钥`。PowerShell 启动脚本读取当前 Windows 环境变量并传入 WSL；直接从 WSL 终端启动 Python 时，设置 WSL 的同名环境变量。普通 Python 启动不会自动加载 `.env`。
+F5 和 `just` 会读取仓库根目录的 `.env`，可在其中设置 `DEEPSEEK_API_KEY=你的密钥`、`OLLAMA_MODEL` 或 `OLLAMA_BASE_URL`。直接运行 PowerShell 脚本或 Python 时使用当前环境变量，不会自动加载 `.env`。
 
 DeepSeek 使用仓库已支持的 `deepseek-v4-flash` 别名，并关闭深度思考以观察工具调用。[官方说明](https://api-docs.deepseek.com/)确认该别名仍被接受；上下文报告按[官方模型规格](https://api-docs.deepseek.com/quick_start/pricing/)的 1M 计算，本地模型按 16K 计算。
 
@@ -28,11 +28,11 @@ just harness        # 执行完整例子，按 Key 选择 DeepSeek 或本地 Oll
 just harness-debug  # 启动 debugpy，等待 VS Code 附加后才执行例子
 ~~~
 
-Windows 下三条命令自动通过 WSL 使用现有 Python 环境；WSL/Linux/macOS 下直接使用当前系统的 Python 环境，默认路径为 `~/.cache/pydantic-ai-harness-learning-venv/bin/python`。可用 `HARNESS_PYTHON` 环境变量指定其他解释器；在 Windows 下该变量也必须填写 **WSL 内的路径**。
+三条命令都使用当前机器的 Python：Windows 为 `.venv/Scripts/python.exe`，Linux/macOS 为 `.venv/bin/python`。`HARNESS_PYTHON` 环境变量可为 just 命令指定其他本地解释器。
 
 VS Code 的 **终端 → 运行任务** 也提供 `just harness`、`just harness-test`。完整例子不打印运行日志；断点中检查变量，运行后的消息、报告和历史窗口保存在 `output/`。测试结果仍由 pytest 输出。
 
-`just harness-debug` 会等待调试器连接。随后在 **Remote - WSL** 窗口选择 **Python: Harness 附加 just 调试 (WSL)** 并按 F5；完整步骤见 [调试指南](DEBUGGING.md)。直接 F5 启动使用第一项 **Python: Harness 直接启动 (F5 / WSL)**。
+`just harness-debug` 会等待调试器连接。随后选择 **Python: Harness 附加 just 调试 (Local)** 并按 F5；完整步骤见 [调试指南](DEBUGGING.md)。直接 F5 启动使用第一项 **Python: Harness 直接启动 (F5 / Local)**。
 
 也可以在仓库根目录直接运行原来的 PowerShell 脚本：
 
@@ -40,26 +40,24 @@ VS Code 的 **终端 → 运行任务** 也提供 `just harness`、`just harness
 .\harness_example\run_ollama.ps1
 ~~~
 
-脚本使用本机已有 WSL Python。未设置 DeepSeek Key 时自动获取 Windows 的 WSL 网关地址；`OLLAMA_MODEL`、`OLLAMA_BASE_URL` 可覆盖本地模型和接口，默认沿用 `qwen2.5-harness:14b-16k`。
+脚本使用本机 `.venv`，本地模型默认 `qwen2.5-harness:14b-16k`，接口默认 `http://localhost:11434/v1`。也可以直接执行 `.\.venv\Scripts\python.exe -m harness_example.main`。
 
 入口不读取命令行参数。直接运行 `python -m harness_example.main`，每步缩小可用工具范围，由所选模型生成参数、框架执行工具，完成后从快照续接。工作区固定为 `harness_example/output/demo/`。
 
 随后执行独立的记忆与历史专题，产物放在 `harness_example/output/memory-history/`。MCP 服务由客户端自动启动和关闭，不需要先开一个服务终端。
 
-完整流程需要 POSIX。当前 `LocalWorkspaceBackend` 依赖 POSIX 进程组，Windows 原生 Python 会收到运行环境提示。Windows 原生可运行 [追问与恢复示例](../pydantic_harness_example/README.md) 和 [最小 Planning 示例](quickstart.py)。
+之前需要 WSL，是因为内置 `LocalWorkspaceBackend` 的进程组清理和 Harness `Shell` 的命令包装使用 POSIX 接口。现在 Windows 通过独立的 [local_workspace.py](local_workspace.py) 适配本地文件和受限 `echo` 工具，其他 Harness 能力仍走原来的源码。Linux/macOS 继续使用内置后端。这是示例的适配层，没有修改库的 Windows 支持范围。
 
 ## 环境
 
-本机 WSL Python 为 `/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python`；它与 Windows `.venv` 分开。新环境请从同一份当前源码安装：
+本机 `.venv` 已安装所需依赖。新 Windows 环境可在仓库根目录安装：
 
-~~~bash
-python3 -m venv ~/.cache/pydantic-ai-harness-learning-venv
-~/.cache/pydantic-ai-harness-learning-venv/bin/python -m pip install uv
-~/.cache/pydantic-ai-harness-learning-venv/bin/uv pip install \
-  --python ~/.cache/pydantic-ai-harness-learning-venv/bin/python \
-  -e ./pydantic_graph -e './pydantic_ai_slim[openai,mcp]' \
-  -e './src/pydantic_ai_harness[skills,code-mode,dynamic-workflow]' pytest debugpy
+~~~powershell
+uv venv .venv
+uv pip install --python .venv/Scripts/python.exe -e ./pydantic_graph -e './pydantic_ai_slim[openai,mcp]' -e './src/pydantic_ai_harness[skills,code-mode,dynamic-workflow]' pytest debugpy
 ~~~
+
+Linux/macOS 使用同样的源码依赖，将解释器路径改为 `.venv/bin/python`。
 
 默认模型使用原 Qwen 权重，服务上下文设置为 16384 tokens。在 Windows Ollama 中创建：
 
@@ -68,22 +66,15 @@ ollama create qwen2.5-harness:14b-16k -f ./pydantic_harness_example/Modelfile
 ollama list
 ~~~
 
-WSL 中从仓库根目录运行：
-
-~~~bash
-export OLLAMA_MODEL='qwen2.5-harness:14b-16k'
-# Windows Ollama + WSL NAT；Ollama 需监听 WSL 可访问的地址。
-export OLLAMA_BASE_URL="http://$(ip -4 route show default | awk '{print $3}'):11434/v1"
-/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python -m harness_example.main
-~~~
-
-Ollama 在 WSL 内或使用镜像网络时，可使用 `http://localhost:11434/v1`。完整流程包含多次工具请求、子代理审阅和快照续接，运行时间取决于本地推理速度。
+Ollama 和 Python 都在当前机器运行，默认地址为 `http://localhost:11434/v1`。完整流程包含多次工具请求、子代理审阅和快照续接，运行时间取决于本地推理速度。
 
 ## 六个概念怎样落到代码
 
 ### 1. Workspace：工具使用的工作环境
 
-`LocalWorkspace(workspace)` 提供当前机器的文件和进程后端。文件工具的相对路径、Shell 的起始目录、Skills 的发现目录，以及本例 FileStore 的文件位置，都由它确定。它常用于 coding agent，也可用于分析资料、生成报告等任务；它本身不提供操作系统级隔离。
+`create_local_workspace(workspace)` 选择当前系统的后端。Windows 的 `NativeWorkspace` 将模型侧 `/workspace` 路径映射到真实目录；Linux/macOS 使用内置 `LocalWorkspace`。文件工具、Skills、FileStore 仍统一访问 `ctx.workspace`。工作区常用于 coding agent，也可用于分析资料、生成报告；它不是操作系统级沙箱。
+
+Windows 的 `NativeShell` 只演示 `run_command("echo harness-demo")` 一类简单命令，真实调用 `cmd.exe`，不支持任意脚本或 POSIX 后台 Shell。它通过能力接口提供工具，便于观察如何替换平台相关实现。文件记忆使用 FileStore 的纯文件后端路径，不执行 `mv` 等 Unix 命令。
 
 Harness 不要求每个 Agent 都有工作区。本例因为组合了 FileSystem、Shell、RepoContext、Skills 和文件记忆才使用它；独立的 [RAG](rag.py) 和 [MCP 客户端](mcp_client.py) 没有挂 `LocalWorkspace`。换成数据库记忆、HTTP 检索和远程工具，也可以完全不接触本地文件。
 
@@ -170,7 +161,8 @@ python -m harness_example.mcp_client
 | --- | --- |
 | [quickstart.py](quickstart.py) | Agent + Planning 的最小关系 |
 | [model_config.py](model_config.py) | API Key 与本地模型的统一选择 |
-| [main.py](main.py) 的 `build_agent` | 工作区、20 个能力、依赖与事件 |
+| [main.py](main.py) 的 `build_agent` | 工作区、能力组合、依赖与事件 |
+| [local_workspace.py](local_workspace.py) | Windows 文件后端和原生命令适配；平台选择边界 |
 | [main.py](main.py) 的 `Walkthrough` | 工具范围、执行成功后推进、提前输出重试 |
 | [main.py](main.py) 的 `run_example` | 保存快照、读回历史、真正发起下一轮 run |
 | [memory_history.py](memory_history.py) | 跨 conversation 记忆、历史加载、滑窗、增量摘要 |
@@ -188,7 +180,7 @@ python -m harness_example.mcp_client
 
 | 能力组 | Harness 组件 | 可观察行为 |
 | --- | --- | --- |
-| 工作区操作 | FileSystem、Shell | 读 lesson.txt、执行 echo、写 report.md |
+| 工作区操作 | FileSystem、Shell / Windows NativeShell | 读 lesson.txt、执行 echo、写 report.md |
 | 工作区知识 | RepoContext、Skills | AGENTS.md 注入、study-notes 按需加载 |
 | 计划和长期知识 | Planning、Memory | SQLite 计划和文件记忆，读回、搜索 |
 | 人机与委派 | AskUser、SubAgents | 明确标记的模拟偏好回答、与主代理共用模型配置的审阅子代理 |
@@ -198,9 +190,9 @@ python -m harness_example.mcp_client
 | 状态与续接 | StepPersistence、ConversationSearch | 快照落盘、搜索历史、从快照发起后续 run |
 | 周期指令 | SystemReminders | 到达间隔后为本次请求加入提醒 |
 
-共 20 个通用 Harness 能力。LocalWorkspace、PrepareTools、Hooks、Agent、Model、RunContext、UsageLimits 属于核心；存储对象不重复计数。
+POSIX 组合包含 20 个通用 Harness 能力；Windows 组合包含 19 个，并用示例的 `NativeShell` 替代内置 Shell。LocalWorkspace、PrepareTools、Hooks、Agent、Model、RunContext、UsageLimits 属于核心；存储对象不重复计数。
 
-新增的 `KnowledgeRAG` 是示例自己编写的能力，`MCP` 是核心能力，不计入这 20 个内置 Harness 组件。历史专题另外使用 `SummarizingCompaction`。
+`KnowledgeRAG`、`NativeWorkspace`、`NativeShell` 是示例自己编写的能力，`MCP` 是核心能力，不计入内置 Harness 组件数量。历史专题另外使用 `SummarizingCompaction`。
 
 能力挂载、工具成功执行、阈值策略触发是三个不同事实。短流程可能不会触发单消息限长或预算警告；可以改阈值并在相应钩子处观察。`coverage.json` 记录实际工具步骤，不代表全部能力的所有分支都已执行。
 
@@ -240,13 +232,13 @@ Coder 的组合继续看 [coder 预设](../pydantic_harness_example/README.md) �
 
 ## 验证
 
-在安装了源码依赖的 WSL Python 环境运行：
+推荐从仓库根目录运行 `just harness-test`。也可以在已激活本地 `.venv` 的终端分别执行：
 
 ~~~bash
 python -m pytest harness_example/test_walkthrough.py harness_example/test_advanced.py -q -p no:cacheprovider
 python -m pytest harness_example/test_model_selection.py -q -p no:cacheprovider
 python -m pytest harness_example/test_memory_history.py harness_example/test_rag.py harness_example/test_mcp.py -q -p no:cacheprovider
-python -m pytest pydantic_harness_example/test_harness.py -q -p no:cacheprovider
+python -m pytest harness_example/test_local_workspace.py -q -p no:cacheprovider
 ~~~
 
 流程测试使用 FunctionModel，经过真实 Agent、工具与存储；MCP 测试启动真实 stdio 子进程，历史测试还用本机 HTTP 服务验证模型连接的生命周期。模型选择测试检查空 Key、空白 Key 和非空 Key，并在 SDK 请求发送前截停，验证模型路由和 DeepSeek 关闭思考的参数，不使用真实密钥或访问云 API。本地 Ollama 实跑用于验证该模型与工具协议的实际配合。

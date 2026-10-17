@@ -2,46 +2,48 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Harness 直接启动 (F5 / WSL)",
+            "name": "Python: Harness 直接启动 (F5 / Local)",
             "type": "debugpy",
             "request": "launch",
             "module": "harness_example.main",
             "stopOnEntry": true,
             "subProcess": true,
             "cwd": "${workspaceFolder}",
-            "python": "${input:harnessWslPython}",
+            "python": "${workspaceFolder}/.venv/bin/python",
             "console": "integratedTerminal",
             "justMyCode": false,
             "envFile": "${workspaceFolder}/.env",
             "env": {
-                "PYTHONUTF8": "1",
-                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
-                "OLLAMA_BASE_URL": "${input:harnessWslOllamaUrl}"
+                "PYTHONUTF8": "1"
+            },
+            "windows": {
+                "python": "${workspaceFolder}/.venv/Scripts/python.exe"
             }
         },
         {
-            "name": "Python: Harness 记忆与历史 (WSL)",
+            "name": "Python: Harness 记忆与历史 (Local)",
             "type": "debugpy",
             "request": "launch",
             "module": "harness_example.memory_history",
             "cwd": "${workspaceFolder}",
-            "python": "${input:harnessWslPython}",
+            "python": "${workspaceFolder}/.venv/bin/python",
             "console": "integratedTerminal",
             "justMyCode": false,
             "envFile": "${workspaceFolder}/.env",
             "env": {
-                "PYTHONUTF8": "1",
-                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
-                "OLLAMA_BASE_URL": "${input:harnessWslOllamaUrl}"
+                "PYTHONUTF8": "1"
+            },
+            "windows": {
+                "python": "${workspaceFolder}/.venv/Scripts/python.exe"
             }
         },
         {
-            "name": "Python: Harness 外部 RAG",
+            "name": "Python: Harness 外部 RAG (Local)",
             "type": "debugpy",
             "request": "launch",
             "module": "harness_example.rag",
             "cwd": "${workspaceFolder}",
-            "python": "${input:harnessWslPython}",
+            "python": "${workspaceFolder}/.venv/bin/python",
             "windows": {
                 "python": "${workspaceFolder}/.venv/Scripts/python.exe"
             },
@@ -49,18 +51,16 @@
             "justMyCode": false,
             "envFile": "${workspaceFolder}/.env",
             "env": {
-                "PYTHONUTF8": "1",
-                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
-                "OLLAMA_BASE_URL": "${input:learningOllamaUrl}"
+                "PYTHONUTF8": "1"
             }
         },
         {
-            "name": "Python: Harness MCP 客户端与服务端",
+            "name": "Python: Harness MCP 客户端与服务端 (Local)",
             "type": "debugpy",
             "request": "launch",
             "module": "harness_example.mcp_client",
             "cwd": "${workspaceFolder}",
-            "python": "${input:harnessWslPython}",
+            "python": "${workspaceFolder}/.venv/bin/python",
             "windows": {
                 "python": "${workspaceFolder}/.venv/Scripts/python.exe"
             },
@@ -69,9 +69,7 @@
             "justMyCode": false,
             "envFile": "${workspaceFolder}/.env",
             "env": {
-                "PYTHONUTF8": "1",
-                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
-                "OLLAMA_BASE_URL": "${input:learningOllamaUrl}"
+                "PYTHONUTF8": "1"
             }
         },
         {
@@ -80,7 +78,7 @@
             "request": "launch",
             "module": "harness_example.advanced",
             "cwd": "${workspaceFolder}",
-            "python": "${input:harnessWslPython}",
+            "python": "${workspaceFolder}/.venv/bin/python",
             "windows": {
                 "python": "${workspaceFolder}/.venv/Scripts/python.exe"
             },
@@ -92,9 +90,7 @@
                 "${input:harnessLesson}"
             ],
             "env": {
-                "PYTHONUTF8": "1",
-                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
-                "OLLAMA_BASE_URL": "${input:learningOllamaUrl}"
+                "PYTHONUTF8": "1"
             }
         },
         {
@@ -103,7 +99,7 @@
             "request": "launch",
             "module": "harness_example.advanced",
             "cwd": "${workspaceFolder}",
-            "python": "${input:harnessWslPython}",
+            "python": "${workspaceFolder}/.venv/bin/python",
             "windows": {
                 "python": "${workspaceFolder}/.venv/Scripts/python.exe"
             },
@@ -139,7 +135,7 @@
             }
         },
         {
-            "name": "Python: Harness 学习示例 (Ollama)",
+            "name": "Python: 旧示例 Harness 学习示例 (Ollama)",
             "type": "debugpy",
             "request": "launch",
             "module": "pydantic_harness_example.main",
@@ -164,7 +160,7 @@
             }
         },
         {
-            "name": "Python: Harness Coder (Remote - WSL)",
+            "name": "Python: 旧示例 Harness Coder (Remote - WSL)",
             "type": "debugpy",
             "request": "launch",
             "module": "pydantic_harness_example.main",
@@ -184,7 +180,7 @@
             }
         },
         {
-            "name": "Python: Harness 附加 just 调试 (WSL)",
+            "name": "Python: Harness 附加 just 调试 (Local)",
             "type": "debugpy",
             "request": "attach",
             "connect": {
@@ -195,7 +191,7 @@
             "subProcess": true
         },
         {
-            "name": "Python: Harness 测试 (pytest / WSL)",
+            "name": "Python: Harness 测试 (pytest / Local)",
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",
@@ -206,13 +202,16 @@
                 "no:cacheprovider"
             ],
             "cwd": "${workspaceFolder}",
-            "python": "${input:harnessWslPython}",
+            "python": "${workspaceFolder}/.venv/bin/python",
             "console": "integratedTerminal",
             "justMyCode": false,
             "subProcess": true,
             "env": {
                 "PYTHONUTF8": "1",
                 "DEEPSEEK_API_KEY": ""
+            },
+            "windows": {
+                "python": "${workspaceFolder}/.venv/Scripts/python.exe"
             }
         }
     ],

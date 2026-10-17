@@ -8,7 +8,7 @@ from os import name as platform_name
 from pathlib import Path
 
 from pydantic_ai import Agent, AgentRunResult, ModelRetry, RunContext
-from pydantic_ai.capabilities import AbstractCapability, Hooks, LocalWorkspace, PrepareTools, ValidatedToolArgs
+from pydantic_ai.capabilities import AbstractCapability, Hooks, PrepareTools, ValidatedToolArgs
 from pydantic_ai.messages import ModelRequest, ToolCallPart, UserPromptPart
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.settings import ModelSettings, ToolOrOutput
@@ -27,7 +27,6 @@ from pydantic_ai_harness import (
     Planning,
     RepoContext,
     ReportContextUsage,
-    Shell,
     Skills,
     SlidingWindowCompaction,
     StepPersistence,
@@ -50,12 +49,14 @@ from pydantic_ai_harness.system_reminders import Reminder
 from pydantic_ai_harness.tool_output_limits import Band, Truncate
 
 if __package__:
+    from .local_workspace import create_local_workspace, create_shell
     from .mcp_client import create_mcp_capability
     from .memory_history import demonstrate_history, demonstrate_memory
     from .model_config import create_model
     from .rag import InMemoryRetrievalService, KnowledgeRAG, RetrievalService
     from .tool_descriptions import TOOL_DESCRIPTIONS
 else:
+    from local_workspace import create_local_workspace, create_shell
     from mcp_client import create_mcp_capability
     from memory_history import demonstrate_history, demonstrate_memory
     from model_config import create_model
@@ -291,8 +292,8 @@ def build_agent(
         # 本地模型可能在步骤间先输出确认文字；输出重试是整次 run 的累计预算。
         retries={'tools': 8, 'output': len(LESSON_STEPS) + 2 if guided else 8},
         capabilities=[
-            LocalWorkspace(workspace),  # 核心：文件和命令所在目录；不是操作系统沙箱。
-            Walkthrough(guided=guided),  # 自定义核心能力，不计入二十个 Harness 能力。
+            create_local_workspace(workspace),  # Windows 原生适配；POSIX 使用内置 LocalWorkspace。
+            Walkthrough(guided=guided),  # 自定义教学能力，不计入内置 Harness 能力。
             InputGuardrail(guard=input_guard),
             StepPersistence(store=store),
             ClampOversizedMessages(max_part_chars=12_000),
@@ -300,7 +301,7 @@ def build_agent(
             SlidingWindowCompaction(max_messages=24, keep_messages=16),
             Memory(FileStore('memory'), namespace=lambda ctx: ctx.deps.user_id, max_tokens=600),
             FileSystem(tools=['read_file', 'write_file', 'list_directory'], content_hashes=False),
-            Shell(tools=['run_command'], allowed_commands=['echo'], denied_operators=['>', '>>', '|', ';', '&&']),
+            create_shell(),  # Windows 使用原生 echo 教学工具；POSIX 使用 Harness Shell。
             RepoContext(),
             Skills('skills'),
             KnowledgeRAG(),  # 自定义能力：工具通过 deps 调用应用提供的检索服务。
@@ -400,8 +401,8 @@ async def run_example(
         'context_events': deps.context_events,
         'successful_delegations': deps.successful_delegations,
         'continued_from_snapshot': resume,
-        'registered_harness_capabilities': 20,
-        'extensions': ['KnowledgeRAG', 'MCP'],
+        'registered_harness_capabilities': 19 if platform_name == 'nt' else 20,
+        'extensions': ['KnowledgeRAG', 'MCP', *(['NativeWorkspace', 'NativeShell'] if platform_name == 'nt' else [])],
         'note': '工具成功返回与能力注册分别记录；不代表每个护栏拒绝或压缩分支都已触发。',
     }
     (workspace / 'coverage.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -410,10 +411,6 @@ async def run_example(
 
 async def main() -> None:
     """根据 API Key 选择模型，逐步执行完整流程并从快照续接."""
-    if platform_name != 'posix':
-        raise SystemExit(
-            '综合示例请用 WSL/Linux/macOS 运行，VS Code 选择 Python: Harness 直接启动 (F5 / WSL)。'
-        )
     model = create_model()
     await run_example(model=model)
     study_workspace = WORKSPACE.parent / 'memory-history'

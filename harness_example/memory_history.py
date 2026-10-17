@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic_ai import Agent, AgentRunResult, ModelRetry, RunContext
-from pydantic_ai.capabilities import Hooks, LocalWorkspace, ValidatedToolArgs
+from pydantic_ai.capabilities import Hooks, ValidatedToolArgs
 from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
@@ -25,8 +25,10 @@ from pydantic_ai_harness.compaction import compact_now
 from pydantic_ai_harness.memory import FileStore
 
 if __package__:
+    from .local_workspace import create_local_workspace
     from .model_config import create_model
 else:
+    from local_workspace import create_local_workspace
     from model_config import create_model
 
 WORKSPACE = Path(__file__).resolve().parent / 'output' / 'memory-history'
@@ -68,7 +70,7 @@ def build_memory_agent(*, workspace: Path, model: Model, request_path: Path) -> 
         model_settings={'temperature': 0.2, 'max_tokens': 256},
         retries=3,
         capabilities=[
-            LocalWorkspace(workspace),
+            create_local_workspace(workspace),
             Memory(FileStore('memory'), namespace=lambda ctx: ctx.deps.user_id, injection_errors='raise'),
             Hooks(before_model_request=capture_request, after_tool_execute=record_write),
         ],

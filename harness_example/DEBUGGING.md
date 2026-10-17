@@ -4,34 +4,31 @@
 
 ## 直接 F5 启动（推荐）
 
-[launch.json](../.vscode/launch.json) 的第一项 **Python: Harness 直接启动 (F5 / WSL)** 使用 `request: "launch"`。F5 会负责启动 Python 和调试器，不需要先开终端运行 `just harness-debug`。
+[launch.json](../.vscode/launch.json) 的第一项 **Python: Harness 直接启动 (F5 / Local)** 使用 `request: "launch"`。F5 会负责启动本地 Python 和调试器，不需要先开终端运行命令。
 
-1. 安装 Microsoft 的 WSL 扩展，以 **Remote - WSL** 重新打开仓库。
-2. 在 WSL 窗口安装 Python 和 Python Debugger 扩展。
-3. 打开左侧“运行和调试”（Ctrl+Shift+D），从下拉列表选择第一项 **Python: Harness 直接启动 (F5 / WSL)**。使用 DeepSeek 时，在根目录 `.env` 中设置 `DEEPSEEK_API_KEY=你的密钥`；留空使用本地模型。
-4. 确认 WSL Python、模型和接口地址；本机默认值已配置，可以依次回车。Python 为 `/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python`，Ollama 接口为 `http://172.31.192.1:11434/v1`；后两项仅在 Key 为空时使用。
-5. 按 F5 自动启动，并在入口暂停（`stopOnEntry: true`）。在 `main()` 或 `build_agent()` 设置断点后，F5 继续、F10 单步、F11 进入函数。
+1. 在普通 VS Code 窗口打开仓库，安装 Python 和 Python Debugger 扩展。
+2. 打开左侧“运行和调试”（Ctrl+Shift+D），选择第一项 **Python: Harness 直接启动 (F5 / Local)**。
+3. 使用 DeepSeek 时，在根目录 `.env` 中设置 `DEEPSEEK_API_KEY=你的密钥`；留空使用本地 Ollama。默认接口为 `http://localhost:11434/v1`，也可在 `.env` 设置 `OLLAMA_BASE_URL` 和 `OLLAMA_MODEL`。
+4. 按 F5 自动启动，并在入口暂停（`stopOnEntry: true`）。在 `main()` 或 `build_agent()` 设置断点后，F5 继续、F10 单步、F11 进入函数。
 
-完整例子需要 POSIX，因此这项配置须在 **Remote - WSL** 窗口使用；Windows 普通窗口不能直接执行该 WSL Python。只学习 RAG 或 MCP 时，可使用相应的 Windows 原生配置。
-
-Windows Ollama + WSL NAT 时，用 `ip -4 route show default` 的网关地址组成 `http://网关:11434/v1`。这台机器当前可用 `http://172.31.192.1:11434/v1`；WSL 重启后可能改变。
+Windows 使用 `${workspaceFolder}/.venv/Scripts/python.exe`，Linux/macOS 使用 `${workspaceFolder}/.venv/bin/python`。完整例子无需 WSL；Windows 平台差异集中在 [local_workspace.py](local_workspace.py)。
 
 配置使用 `justMyCode: false`。源码依赖采用 editable 安装，因此能进入当前仓库，而不是另一份已发布的包。
 
-单独学习时可选 **Python: Harness 记忆与历史 (WSL)**、**Python: Harness 外部 RAG**、**Python: Harness MCP 客户端与服务端**，都不传命令行参数。RAG、MCP 专题在 Windows 原生 Python 下也能运行；记忆专题的文件后端仍使用 WSL。
+单独学习时可选 **Python: Harness 记忆与历史 (Local)**、**Python: Harness 外部 RAG (Local)**、**Python: Harness MCP 客户端与服务端 (Local)**，都使用本地 `.venv`，不传命令行参数。
 
 完整流程和 MCP 配置已启用 `subProcess: true`。在 [mcp_server.py](mcp_server.py) 的 `return a + b` 直接打断点，服务端会作为子进程调试会话出现；F11 不会跨 RPC 自动跳进服务端。工具请求超时为 300 秒，暂停超过这个时间后需重新运行。
 
 ## 从 just 附加调试
 
-1. 在仓库根目录执行 `just harness-debug`。Windows 下它会启动 WSL Python，在 WSL 的 `127.0.0.1:5678` 监听并等待；尚未连接时不会执行例子。
-2. 用 VS Code **Remote - WSL** 打开同一仓库，在 `main.py` 的 `main` 或 `build_agent` 中设置断点。
-3. 选择 **Python: Harness 附加 just 调试 (WSL)**，按 F5。之后可以继续、单步，并进入 MCP 子进程。
+1. 在仓库根目录执行 `just harness-debug`。它会启动本地 Python，在 `127.0.0.1:5678` 监听并等待；尚未连接时不会执行例子。
+2. 用 VS Code 打开同一仓库，在 `main.py` 的 `main` 或 `build_agent` 中设置断点。
+3. 选择 **Python: Harness 附加 just 调试 (Local)**，按 F5。之后可以继续、单步，并进入 MCP 子进程。
 4. 停止调试后结束启动命令；重新调试时重新运行 `just harness-debug`。同一时间只启动一个使用 5678 端口的会话。
 
-在 Linux/macOS 原生运行时，可在同一系统的 VS Code 窗口使用这个附加配置，连接地址不变。附加配置不再选择模型或 Python，这些设置已由启动 `just` 的终端及根目录 `.env` 提供。
+附加配置的模型与 Python 设置由启动 `just` 的终端及根目录 `.env` 提供。
 
-只调试测试时，选择 **Python: Harness 测试 (pytest / WSL)** 并按 F5。它执行 `harness_example` 的测试，不请求真实模型；普通运行同一组测试使用 `just harness-test`。
+只调试测试时，选择 **Python: Harness 测试 (pytest / Local)** 并按 F5。它执行 `harness_example` 的测试，不请求真实模型；普通运行同一组测试使用 `just harness-test`。
 
 示例已移除 `print` 和自定义日志输出。调试时在变量面板观察 `result`、`ctx.deps`、消息和工具结果，也可以打开 `output/` 中保存的运行产物。
 
@@ -44,7 +41,7 @@ Windows Ollama + WSL NAT 时，用 `ip -4 route show default` 的网关地址组
 | 3 | [Agent.iter](../pydantic_ai_slim/pydantic_ai/agent/__init__.py) | deps、conversation、usage 与能力进入执行图 |
 | 4 | [CombinedCapability](../pydantic_ai_slim/pydantic_ai/capabilities/combined.py) | 组合钩子的调用顺序 |
 | 5 | [ModelRequestNode / CallToolsNode](../pydantic_ai_slim/pydantic_ai/_agent_graph.py) | 请求模型、解析响应、执行工具、重试 |
-| 6 | [FileSystem](../src/pydantic_ai_harness/pydantic_ai_harness/filesystem/_toolset.py)、[Shell](../src/pydantic_ai_harness/pydantic_ai_harness/shell/_toolset.py) | 文件/命令如何交给 workspace 后端 |
+| 6 | [FileSystem](../src/pydantic_ai_harness/pydantic_ai_harness/filesystem/_toolset.py)、[本地适配层](local_workspace.py)、[POSIX Shell](../src/pydantic_ai_harness/pydantic_ai_harness/shell/_toolset.py) | Windows 文件操作进入 NativeWorkspaceBackend，命令进入 NativeShell；POSIX 使用内置实现 |
 | 7 | [Planning](../src/pydantic_ai_harness/pydantic_ai_harness/planning/_capability.py)、[Memory](../src/pydantic_ai_harness/pydantic_ai_harness/memory/_capability.py) | 工具、状态存储与提示注入 |
 | 8 | [Skills](../src/pydantic_ai_harness/pydantic_ai_harness/skills/_capability.py) | 发现技能与延迟加载 |
 | 9 | [SubAgents](../src/pydantic_ai_harness/pydantic_ai_harness/subagents/_toolset.py) | 子 Agent 的独立历史与父任务用量 |
@@ -70,4 +67,4 @@ Windows Ollama + WSL NAT 时，用 `ip -4 route show default` 的网关地址组
 
 Python 调试器可以单步进入 Monty 的宿主调度和工具函数；沙箱内部的 Rust 解释器不是 Python 源码。`--offline` 固定模型决策，适合断点复现；省略时连接本地 Ollama。
 
-进阶组件和 AskUser 学习配置在 Windows 下使用 `.venv/Scripts/python.exe`，在 WSL 下询问 WSL Python 路径。连接 Windows Ollama 时，进阶配置的接口地址也应填写上面的网关地址。
+本目录进阶组件同样使用本地 `.venv`。调试列表中带“旧示例”的配置属于 `pydantic_harness_example`，其 Coder 组合仍有自己的平台要求，不影响本目录完整流程。

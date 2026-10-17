@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import os
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
@@ -26,8 +25,6 @@ from pydantic_ai.settings import ToolOrOutput
 from pydantic_ai_harness.guardrails import InputBlocked
 from pydantic_ai_harness.planning import PlanItem, SqlitePlanStore, TaskStatus
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, FileStepStore
-
-pytestmark = pytest.mark.skipif(os.name == 'nt', reason='The example uses the POSIX LocalWorkspace backend.')
 
 
 class ProbeFinished(Exception):
