@@ -1,13 +1,13 @@
 # Harness 源码调试
 
-完整流程入口是 `python -m harness_example.main`，无需参数，固定连接本地 Ollama，执行逐步导览和快照续接。先在例子的 `build_agent` 放断点，再进入核心和 Harness 源码。
+完整流程入口是 `python -m harness_example.main`，无需参数。`main.py` 顶部的 `DEEPSEEK_API_KEY` 有值时连接 DeepSeek，否则连接本地 Ollama，执行逐步导览和快照续接。先在例子的 `create_model`、`build_agent` 放断点，再进入核心和 Harness 源码。
 
 ## F5
 
 1. 安装 Microsoft 的 WSL 扩展，以 **Remote - WSL** 重新打开仓库。
 2. 在 WSL 窗口安装 Python 和 Python Debugger 扩展。
-3. 选择 **Python: Harness 完整流程 (Ollama / WSL)**。
-4. 输入 WSL Python 路径 `/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python`、本地模型和接口地址。
+3. 选择 **Python: Harness 完整流程 (DeepSeek / Ollama / WSL)**。使用 DeepSeek 时，在根目录 `.env` 中设置 `DEEPSEEK_API_KEY=你的密钥`；留空使用本地模型。
+4. 输入 WSL Python 路径 `/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python`、本地模型和接口地址；后两项仅在 Key 为空时使用。
 5. 设置断点，F5 继续、F10 单步、F11 进入函数。
 
 Windows Ollama + WSL NAT 时，用 `ip -4 route show default` 的网关地址组成 `http://网关:11434/v1`。这台机器当前可用 `http://172.31.192.1:11434/v1`；WSL 重启后可能改变。

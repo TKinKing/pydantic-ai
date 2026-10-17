@@ -1,4 +1,4 @@
-"""本地 Ollama 的完整 Harness 学习流程：python -m harness_example.main."""
+"""DeepSeek / 本地 Ollama 的完整 Harness 学习流程：python -m harness_example.main."""
 
 import asyncio
 import json
@@ -12,6 +12,7 @@ from pydantic_ai.capabilities import AbstractCapability, Hooks, LocalWorkspace, 
 from pydantic_ai.messages import ModelRequest, ToolCallPart, UserPromptPart
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.deepseek import DeepSeekProvider
 from pydantic_ai.providers.ollama import OllamaProvider
 from pydantic_ai.settings import ModelSettings, ToolOrOutput
 from pydantic_ai.tools import ToolDefinition
@@ -56,6 +57,9 @@ if __package__:
 else:
     from tool_descriptions import TOOL_DESCRIPTIONS
 
+# 有值时使用 DeepSeek；留空时使用本地 Ollama。也可在 VS Code 的 .env 中设置。
+DEEPSEEK_API_KEY = getenv('DEEPSEEK_API_KEY', '')
+DEEPSEEK_MODEL = 'deepseek-v4-flash'  # 当前仓库支持的 Flash 接口别名。
 OLLAMA_MODEL = getenv('OLLAMA_MODEL', 'qwen2.5-harness:14b-16k')
 OLLAMA_BASE_URL = getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')
 WORKSPACE = Path(__file__).resolve().parent / 'output' / 'demo'
@@ -241,6 +245,17 @@ def prepare_workspace(workspace: Path) -> None:
     )
 
 
+def create_model() -> OpenAIChatModel:
+    """主代理和审阅子代理共用此配置；只根据 Key 是否为空选择服务."""
+    if api_key := DEEPSEEK_API_KEY.strip():
+        return OpenAIChatModel(
+            DEEPSEEK_MODEL,
+            provider=DeepSeekProvider(api_key=api_key),
+            settings={'thinking': False},  # 教学流程观察工具调用，不开启深度思考。
+        )
+    return OpenAIChatModel(OLLAMA_MODEL, provider=OllamaProvider(base_url=OLLAMA_BASE_URL))
+
+
 def build_agent(
     *,
     workspace: Path = WORKSPACE,
@@ -251,7 +266,7 @@ def build_agent(
     """二十个 Harness 能力可以逐个设断点；测试只替换 Model，不替换工具."""
     store = FileStepStore(workspace / 'steps')
     if model is None:
-        model = OpenAIChatModel(OLLAMA_MODEL, provider=OllamaProvider(base_url=OLLAMA_BASE_URL))
+        model = create_model()
     reviewer = Agent(
         reviewer_model or model,
         name='reviewer',
@@ -316,7 +331,7 @@ def build_agent(
             ToolOutputLimits(per_tool={'long_reference': [Band(over=500, action=Truncate(max_chars=350))]}),
             # 接近硬预算才提示收尾，避免教学流程中途收到减少工具调用的竞争指令。
             WarnNearLimits(max_iterations=REQUEST_LIMIT, warning_threshold=0.8),
-            ReportContextUsage(context_window=16_384),  # 与默认 Ollama 别名的 num_ctx 一致。
+            ReportContextUsage(context_window=1_000_000 if model.system == 'deepseek' else 16_384),
             OutputGuardrail(guard=output_guard),
             PrepareTools(chinese_tools),
             Hooks(before_model_request=guide_current_step),  # 当前步骤位于记忆、计划和提醒之后。
@@ -414,11 +429,14 @@ async def run_example(
 
 
 async def main() -> None:
-    """固定使用本地 Ollama，逐步执行完整流程并从快照续接."""
+    """根据 API Key 选择模型，逐步执行完整流程并从快照续接."""
     if platform_name != 'posix':
-        raise SystemExit('综合示例请用 WSL/Linux/macOS 运行，VS Code 选择 Python: Harness 完整流程 (Ollama / WSL)。')
-    print(f'[本地调试] 模型={OLLAMA_MODEL}；接口={OLLAMA_BASE_URL}')
-    await run_example()
+        raise SystemExit(
+            '综合示例请用 WSL/Linux/macOS 运行，VS Code 选择 Python: Harness 完整流程 (DeepSeek / Ollama / WSL)。'
+        )
+    model = create_model()
+    print(f'[模型] 服务={model.system}；模型={model.model_name}；接口={model.base_url}')
+    await run_example(model=model)
 
 
 if __name__ == '__main__':

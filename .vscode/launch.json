@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Harness 完整流程 (Ollama / WSL)",
+            "name": "Python: Harness 完整流程 (DeepSeek / Ollama / WSL)",
             "type": "debugpy",
             "request": "launch",
             "module": "harness_example.main",

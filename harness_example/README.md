@@ -1,8 +1,22 @@
-# 本地 Harness 完整学习示例
+# Harness 完整学习示例
 
-**主入口：[main.py](main.py)。固定用本地 Ollama 逐步执行工具，串起 20 个通用 Harness 能力。**
+**主入口：[main.py](main.py)。有 DeepSeek API Key 时调用 DeepSeek，否则使用本地 Ollama，串起 20 个通用 Harness 能力。**
 
-VS Code 用 **Remote - WSL** 打开仓库，选择 **Python: Harness 完整流程 (Ollama / WSL)**，按 F5。断点顺序见 [源码调试指南](DEBUGGING.md)。
+VS Code 用 **Remote - WSL** 打开仓库，选择 **Python: Harness 完整流程 (DeepSeek / Ollama / WSL)**，按 F5。断点顺序见 [源码调试指南](DEBUGGING.md)。
+
+## 模型选择
+
+`main.py` 顶部的 `DEEPSEEK_API_KEY` 变量控制选择，默认读取同名环境变量：
+
+~~~python
+DEEPSEEK_API_KEY = getenv('DEEPSEEK_API_KEY', '')
+~~~
+
+有非空值时，主代理和 reviewer 都使用 DeepSeek；空字符串或只有空白时，都使用原本的本地 Ollama。入口不增加命令行参数。Key 无效或请求失败会直接报错，不自动切回本地模型。
+
+F5 会读取仓库根目录的 `.env`，可在其中设置 `DEEPSEEK_API_KEY=你的密钥`。PowerShell 启动脚本读取当前 Windows 环境变量并传入 WSL；直接从 WSL 终端启动时，设置 WSL 的同名环境变量。普通 Python 启动不会自动加载 `.env`。
+
+DeepSeek 使用仓库已支持的 `deepseek-v4-flash` 别名，并关闭深度思考以观察工具调用。[官方说明](https://api-docs.deepseek.com/)确认该别名仍被接受；上下文报告按[官方模型规格](https://api-docs.deepseek.com/quick_start/pricing/)的 1M 计算，本地模型按 16K 计算。日志只显示服务、模型与接口，不显示 Key。
 
 ## 运行
 
@@ -12,9 +26,9 @@ VS Code 用 **Remote - WSL** 打开仓库，选择 **Python: Harness 完整流�
 .\harness_example\run_ollama.ps1
 ~~~
 
-脚本使用本机已有 WSL Python，并自动获取 Windows 的 WSL 网关地址。`OLLAMA_MODEL`、`OLLAMA_BASE_URL` 可覆盖模型和接口。默认沿用 `qwen2.5-harness:14b-16k`，主代理和审阅子代理均连接本地 Ollama。
+脚本使用本机已有 WSL Python。未设置 DeepSeek Key 时自动获取 Windows 的 WSL 网关地址；`OLLAMA_MODEL`、`OLLAMA_BASE_URL` 可覆盖本地模型和接口，默认沿用 `qwen2.5-harness:14b-16k`。
 
-入口不读取命令行参数。直接运行 `python -m harness_example.main`，每步缩小可用工具范围，由本地模型生成参数、框架执行工具，完成后从快照续接。工作区固定为 `harness_example/output/demo/`。
+入口不读取命令行参数。直接运行 `python -m harness_example.main`，每步缩小可用工具范围，由所选模型生成参数、框架执行工具，完成后从快照续接。工作区固定为 `harness_example/output/demo/`。
 
 完整流程需要 POSIX。当前 `LocalWorkspaceBackend` 依赖 POSIX 进程组，Windows 原生 Python 会收到运行环境提示。Windows 原生可运行 [追问与恢复示例](../pydantic_harness_example/README.md) 和 [最小 Planning 示例](quickstart.py)。
 
@@ -72,7 +86,7 @@ Ollama 在 WSL 内或使用镜像网络时，可使用 `http://localhost:11434/v
 | 工作区操作 | FileSystem、Shell | 读 lesson.txt、执行 echo、写 report.md |
 | 工作区知识 | RepoContext、Skills | AGENTS.md 注入、study-notes 按需加载 |
 | 计划和长期知识 | Planning、Memory | SQLite 计划和文件记忆，读回、搜索 |
-| 人机与委派 | AskUser、SubAgents | 明确标记的模拟偏好回答、本地模型审阅子代理 |
+| 人机与委派 | AskUser、SubAgents | 明确标记的模拟偏好回答、与主代理共用模型配置的审阅子代理 |
 | 控制 | InputGuardrail、ToolGuardrail、OutputGuardrail | 输入校验、写入目标约束、最终答案重试 |
 | 历史控制 | ClampOversizedMessages、ClearToolResults、SlidingWindowCompaction | 单片段限长、旧结果清理、消息窗口裁剪 |
 | 结果与预算 | ToolOutputLimits、WarnNearLimits、ReportContextUsage | 长结果截断、预算提醒、上下文事件 |
@@ -123,7 +137,8 @@ Coder 的组合继续看 [coder 预设](../pydantic_harness_example/README.md) �
 
 ~~~bash
 python -m pytest harness_example/test_walkthrough.py harness_example/test_advanced.py -q -p no:cacheprovider
+python -m pytest harness_example/test_model_selection.py -q -p no:cacheprovider
 python -m pytest pydantic_harness_example/test_harness.py -q -p no:cacheprovider
 ~~~
 
-测试使用 FunctionModel，在进程内经过真实 Agent、工具与存储。本地 Ollama 实跑用于验证该模型与工具协议的实际配合。
+流程测试使用 FunctionModel，在进程内经过真实 Agent、工具与存储。模型选择测试检查空 Key、空白 Key 和非空 Key，并在 SDK 请求发送前截停，验证模型路由和 DeepSeek 关闭思考的参数，不使用真实密钥或访问云 API。本地 Ollama 实跑用于验证该模型与工具协议的实际配合。
