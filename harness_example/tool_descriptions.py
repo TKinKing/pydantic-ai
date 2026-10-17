@@ -5,8 +5,11 @@ TOOL_DESCRIPTIONS: dict[str, str] = {  # 工具名称必须与当前源码注册
     'write_file': '写入工作区文件；path 是路径，content 是完整正文。示例只允许写 report.md。',  # 所属能力：FileSystem。
     'list_directory': '列出目录；path 指定工作区中的目录。供 Agent 发现可读文件。',  # 所属能力：FileSystem。
     'run_command': '运行命令；command 是命令文本，timeout 是秒数。本例只允许 echo。',  # 所属能力：Shell。
-    'write_plan': '用 items 替换完整计划；每项含 content 和 status，可选 active_form。',  # 所属能力：Planning。
-    'read_plan': '读取当前计划及状态，供 Agent 检查还有哪些步骤未完成。',  # 所属能力：Planning。
+    'write_plan': '用 items 替换完整计划；每项含 id、content、status，parent_id 表示父任务，depends_on 表示依赖。',
+    'read_plan': '读取当前计划及状态；hierarchical=true 按父子层级展示任务树。',
+    'set_dependency': '让 task_id 依赖 depends_on_id；前置任务未完成时自动 blocked，完成后解除阻塞。',
+    'get_available_tasks': '列出依赖已满足的 pending/in_progress 任务；父任务也可能出现，不会自动执行这些任务。',
+    'update_task_status': '按 task_id 更新 status；任务实际执行完后标记 completed，父任务需要显式完成。',
     'write_memory': '保存跨运行笔记；content 为正文，file 默认 MEMORY.md，old_text 可精确替换旧段落。',  # 所属能力：Memory。
     'read_memory': '读取长期笔记；file 是笔记文件名，与本轮 message_history 不同。',  # 所属能力：Memory。
     'search_memory': '用 query 搜索长期笔记，供 Agent 找回以往记录的事实。',  # 所属能力：Memory。

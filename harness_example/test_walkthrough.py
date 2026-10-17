@@ -3,6 +3,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
+from itertools import groupby
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,21 @@ def scripted_model(respond: Callable[[list[ModelMessage], AgentInfo], ModelRespo
     return FunctionModel(respond, stream_function=stream)
 
 
+def learning_plan() -> list[PlanItem]:
+    """A parent and three independently trackable pieces of work, with stable example ids."""
+    return [
+        PlanItem(id='study', content='学习 Harness 并输出报告'),
+        PlanItem(id='research', parent_id='study', content='阅读并检索资料'),
+        PlanItem(id='practice', parent_id='study', content='实践工具并检查概念'),
+        PlanItem(id='report', parent_id='study', content='保存记忆并写报告'),
+    ]
+
+
+def plan_arguments() -> dict[str, object]:
+    """Serialize the proposed plan as a real model tool call."""
+    return {'items': [item.model_dump(mode='json') for item in learning_plan()]}
+
+
 def test_offline_walkthrough_and_snapshot_continuation(tmp_path: Path) -> None:
     """Run the tools, persist their artifacts and continue without repeating side effects."""
 
@@ -54,18 +70,57 @@ def test_offline_walkthrough_and_snapshot_continuation(tmp_path: Path) -> None:
         assert evidence['completed_tools'].count('write_file') == 1
         assert evidence['completed_tools'].count('write_memory') == 1
         assert evidence['successful_delegations'] == 1
-        assert evidence['context_events'] >= 18
+        assert evidence['context_events'] >= len(LESSON_STEPS)
         assert evidence['continued_from_snapshot']
         assert 'Agent 负责循环' in (tmp_path / 'report.md').read_text(encoding='utf-8')
         memory = list((tmp_path / 'memory').rglob('MEMORY.md'))
         assert len(memory) == 1
         assert 'Harness 通过 capabilities' in memory[0].read_text(encoding='utf-8')
         items = await SqlitePlanStore(str(tmp_path / 'plan.db')).get_items()
-        assert len(items) == 1 and items[0].status is TaskStatus.completed
+        by_id = {item.id: item for item in items}
+        assert set(by_id) == {'study', 'research', 'practice', 'report'}
+        assert all(item.status is TaskStatus.completed for item in items)
+        assert by_id['study'].parent_id is None
+        assert all(by_id[name].parent_id == 'study' for name in ('research', 'practice', 'report'))
+        assert by_id['practice'].depends_on == ['research']
+        assert by_id['report'].depends_on == ['practice']
+        archived_plan = TypeAdapter(list[PlanItem]).validate_json((tmp_path / 'plan.json').read_bytes())
+        assert archived_plan == items
+
+        history = json.loads((tmp_path / 'plan_history.json').read_text(encoding='utf-8'))
+        states = [{item['id']: item for item in entry['items']} for entry in history]
+        assert [status for status, _ in groupby(state['research']['status'] for state in states)] == [
+            'pending',
+            'in_progress',
+            'completed',
+        ]
+        for task_id in ('practice', 'report'):
+            assert [status for status, _ in groupby(state[task_id]['status'] for state in states)] == [
+                'pending',
+                'blocked',
+                'pending',
+                'in_progress',
+                'completed',
+            ]
+        available = [state for entry, state in zip(history, states) if entry['tool'] == 'get_available_tasks']
+        assert len(available) == 3
+        assert available[0]['practice']['status'] == available[0]['report']['status'] == 'blocked'
+        assert available[1]['practice']['status'] == 'pending' and available[1]['report']['status'] == 'blocked'
+        assert available[2]['report']['status'] == 'pending'
+        report_finished = next(state for state in states if state['report']['status'] == 'completed')
+        assert report_finished['study']['status'] == 'pending'  # Child completion does not complete its parent.
+        parent_finished = next(index for index, state in enumerate(states) if state['study']['status'] == 'completed')
+        assert history[parent_finished]['tool'] == 'update_task_status'
+        assert states[parent_finished - 1]['study']['status'] == 'pending'
+        assert all(
+            states[parent_finished - 1][name]['status'] == 'completed' for name in ('research', 'practice', 'report')
+        )
         assert (tmp_path / 'tools.json').exists()
         assert (tmp_path / 'continued_messages.json').exists()
-        assert '[harness-learning-step]' not in (tmp_path / 'messages.json').read_text(encoding='utf-8')
-        assert '[harness-learning-step]' not in (tmp_path / 'continued_messages.json').read_text(encoding='utf-8')
+        for history_path in ('messages.json', 'continued_messages.json'):
+            persisted = (tmp_path / history_path).read_text(encoding='utf-8')
+            assert '[harness-learning-step]' not in persisted
+            assert '<plan-reminder>' not in persisted
 
         store = FileStepStore(tmp_path / 'steps')
         runs = await store.list_runs(conversation_id=result.conversation_id)
@@ -102,6 +157,17 @@ def test_offline_walkthrough_and_snapshot_continuation(tmp_path: Path) -> None:
         assert any(part.content == '[旧工具结果已清理，可搜索历史]' for part in returns)
         assert any(part.tool_name == 'mcp_add' and '12' in str(part.content) for part in returns)
         assert any(part.tool_name == 'search_knowledge' and 'source' in str(part.content) for part in returns)
+        available_replies = [str(part.content) for part in returns if part.tool_name == 'get_available_tasks']
+        for available_id, waiting_ids in [
+            ('research', ('practice', 'report')),
+            ('practice', ('research', 'report')),
+            ('report', ('research', 'practice')),
+        ]:
+            assert any(
+                f'[{available_id}]' in reply and all(f'[{waiting_id}]' not in reply for waiting_id in waiting_ids)
+                for reply in available_replies
+            )
+        assert any(part.tool_name == 'read_plan' and 'hierarchical view' in str(part.content) for part in returns)
         limited = [
             part.content
             for part in returns
@@ -164,10 +230,15 @@ def test_invalid_arguments_do_not_complete_a_step(tmp_path: Path) -> None:
         if calls == 2:
             assert not deps.completed_steps and not deps.completed_tools
             assert any(isinstance(part, RetryPromptPart) for message in messages for part in message.parts)
-            return ModelResponse(
-                parts=[ToolCallPart('write_plan', {'items': [{'content': '学习', 'status': 'in_progress'}]})]
-            )
+            return ModelResponse(parts=[ToolCallPart('write_plan', plan_arguments())])
         assert deps.completed_steps == ['write_plan']
+        reminders = [
+            str(part.content)
+            for message in messages
+            for part in message.parts
+            if isinstance(part, UserPromptPart) and '<plan-reminder>' in str(part.content)
+        ]
+        assert reminders and all(item.content in reminders[-1] for item in learning_plan())
         raise ProbeFinished
 
     async def exercise() -> None:
@@ -177,10 +248,60 @@ def test_invalid_arguments_do_not_complete_a_step(tmp_path: Path) -> None:
             with pytest.raises(ProbeFinished):
                 await agent.run('开始学习', deps=deps)
         items = await SqlitePlanStore(str(tmp_path / 'plan.db')).get_items()
-        assert len(items) == 1 and items[0].status is TaskStatus.in_progress
+        assert items == learning_plan()
 
     asyncio.run(exercise())
     assert calls == 3
+
+
+@pytest.mark.parametrize(
+    'scenario', ['single_task', 'wrong_dependency', 'missing_prerequisite', 'premature_completion']
+)
+def test_invalid_decomposition_or_transition_cannot_advance(tmp_path: Path, scenario: str) -> None:
+    """Reject a fake decomposition, the wrong prerequisite, or claiming work done before it starts."""
+    original = learning_plan()
+    completed: list[str] = []
+    if scenario == 'single_task':
+        original = []
+        call = ToolCallPart('write_plan', {'items': [{'id': 'study', 'content': '全部工作', 'status': 'pending'}]})
+    elif scenario == 'wrong_dependency':
+        completed = ['write_plan']
+        call = ToolCallPart('set_dependency', {'task_id': 'practice', 'depends_on_id': 'report'})
+    elif scenario == 'missing_prerequisite':
+        completed = ['write_plan']
+        original = [original[0], original[2]]
+        call = ToolCallPart('set_dependency', {'task_id': 'practice', 'depends_on_id': 'research'})
+    else:
+        completed = ['write_plan', 'set_dependency', 'set_dependency', 'get_available_tasks']
+        original[2].depends_on = ['research']
+        original[2].status = TaskStatus.blocked
+        original[3].depends_on = ['practice']
+        original[3].status = TaskStatus.blocked
+        call = ToolCallPart('update_task_status', {'task_id': 'research', 'status': 'completed'})
+    deps = LearningDeps(completed_steps=completed.copy())
+    calls = 0
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return ModelResponse(parts=[call])
+        assert deps.completed_steps == completed and not deps.completed_tools
+        assert any(isinstance(part, RetryPromptPart) for message in messages for part in message.parts)
+        raise ProbeFinished
+
+    async def exercise() -> None:
+        prepare_workspace(tmp_path)
+        plan = SqlitePlanStore(str(tmp_path / 'plan.db'))
+        await plan.set_items(original)
+        agent, _ = build_agent(workspace=tmp_path, model=scripted_model(respond))
+        async with agent:
+            with pytest.raises(ProbeFinished):
+                await agent.run('继续拆解和执行任务', deps=deps)
+        assert await plan.get_items() == original
+
+    asyncio.run(exercise())
+    assert calls == 2
 
 
 def test_input_guard_blocks_before_model_request(tmp_path: Path) -> None:
@@ -232,8 +353,9 @@ def test_tool_guard_denial_is_not_counted_as_execution(tmp_path: Path) -> None:
     asyncio.run(exercise())
 
 
-def test_final_plan_requires_completed_status(tmp_path: Path) -> None:
-    """A successful write that leaves the task in progress must not complete the lesson."""
+@pytest.mark.parametrize('unfinished_child', [False, True])
+def test_final_plan_requires_completed_status(tmp_path: Path, unfinished_child: bool) -> None:
+    """Complete the parent explicitly, and only after all its children are done."""
     deps = LearningDeps(completed_steps=[step.tool for step in LESSON_STEPS[:-2]])
     calls = 0
 
@@ -242,26 +364,32 @@ def test_final_plan_requires_completed_status(tmp_path: Path) -> None:
         calls += 1
         if calls == 1:
             return ModelResponse(
-                parts=[ToolCallPart('write_plan', {'items': [{'content': '学习', 'status': 'in_progress'}]})]
+                parts=[
+                    ToolCallPart(
+                        'update_task_status',
+                        {'task_id': 'study', 'status': 'completed' if unfinished_child else 'in_progress'},
+                    )
+                ]
             )
         assert len(deps.completed_steps) == len(LESSON_STEPS) - 2
-        assert any(
-            isinstance(part, RetryPromptPart) and 'completed' in str(part.content)
-            for message in messages
-            for part in message.parts
-        )
+        assert not deps.completed_tools
+        assert any(isinstance(part, RetryPromptPart) for message in messages for part in message.parts)
         raise ProbeFinished
 
     async def exercise() -> None:
         prepare_workspace(tmp_path)
         plan = SqlitePlanStore(str(tmp_path / 'plan.db'))
-        await plan.set_items([PlanItem(content='原计划', status=TaskStatus.in_progress)])
+        original = learning_plan()
+        for item in original[1:]:
+            item.status = TaskStatus.completed
+        if unfinished_child:
+            original[-1].status = TaskStatus.in_progress
+        await plan.set_items(original)
         agent, _ = build_agent(workspace=tmp_path, model=scripted_model(respond))
         async with agent:
             with pytest.raises(ProbeFinished):
-                await agent.run('完成最后的计划步骤', deps=deps)
-        items = await plan.get_items()
-        assert len(items) == 1 and items[0].content == '原计划'
+                await agent.run('完成父任务', deps=deps)
+        assert await plan.get_items() == original
 
     asyncio.run(exercise())
 
@@ -277,12 +405,12 @@ def test_output_retry_budget_covers_multiple_learning_steps(tmp_path: Path) -> N
         if calls <= 5 or 7 <= calls <= 11:
             return ModelResponse(parts=[TextPart('总结：收到，准备继续下一步。')])
         if calls == 6:
-            return ModelResponse(
-                parts=[ToolCallPart('write_plan', {'items': [{'content': '学习', 'status': 'in_progress'}]})]
-            )
+            return ModelResponse(parts=[ToolCallPart('write_plan', plan_arguments())])
         if calls == 12:
-            return ModelResponse(parts=[ToolCallPart('list_directory', {'path': '.'})])
-        assert deps.completed_steps == ['write_plan', 'list_directory']
+            return ModelResponse(
+                parts=[ToolCallPart('set_dependency', {'task_id': 'practice', 'depends_on_id': 'research'})]
+            )
+        assert deps.completed_steps == ['write_plan', 'set_dependency']
         raise ProbeFinished
 
     async def exercise() -> None:

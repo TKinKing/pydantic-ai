@@ -1,6 +1,6 @@
 # Harness 源码调试
 
-完整流程入口是 `python -m harness_example.main`，无需参数。[model_config.py](model_config.py) 的 `DEEPSEEK_API_KEY` 有值时连接 DeepSeek，否则连接本地 Ollama。先在 `create_model`、`build_agent` 放断点，再进入核心和 Harness 源码。完整入口也会执行跨会话记忆和长历史专题。
+完整流程入口是 `python -m harness_example.main`，无需参数。[model_config.py](model_config.py) 的 `DEEPSEEK_API_KEY` 有值时连接 DeepSeek，否则连接本地 Ollama。先在 `create_model`、`build_agent` 放断点，再进入核心和 Harness 源码。完整入口先执行包含任务拆解的 29 步工具流程，再执行跨会话记忆和长历史专题。
 
 ## 直接 F5 启动（推荐）
 
@@ -42,12 +42,12 @@ just harness-test
 | 顺序 | 文件 / 符号 | 看什么 |
 | --- | --- | --- |
 | 1 | [main.py](main.py)：`prepare_workspace`、`build_agent` | 工作区、存储、依赖与能力组合 |
-| 2 | [main.py](main.py)：`Walkthrough`、`guide_current_step` | 按步骤准备工具范围、请求末尾教学提示、成功执行后推进 |
+| 2 | [main.py](main.py)：`Walkthrough`、`preserve_plan_reminder`、`guide_current_step` | 按步骤准备工具范围、保留并恢复当次计划提醒、追加教学提示、成功执行后推进 |
 | 3 | [Agent.iter](../pydantic_ai_slim/pydantic_ai/agent/__init__.py) | deps、conversation、usage 与能力进入执行图 |
 | 4 | [CombinedCapability](../pydantic_ai_slim/pydantic_ai/capabilities/combined.py) | 组合钩子的调用顺序 |
 | 5 | [ModelRequestNode / CallToolsNode](../pydantic_ai_slim/pydantic_ai/_agent_graph.py) | 请求模型、解析响应、执行工具、重试 |
 | 6 | [FileSystem](../src/pydantic_ai_harness/pydantic_ai_harness/filesystem/_toolset.py)、[本地适配层](local_workspace.py)、[POSIX Shell](../src/pydantic_ai_harness/pydantic_ai_harness/shell/_toolset.py) | Windows 文件操作进入 NativeWorkspaceBackend，命令进入 NativeShell；POSIX 使用内置实现 |
-| 7 | [Planning](../src/pydantic_ai_harness/pydantic_ai_harness/planning/_capability.py)、[Memory](../src/pydantic_ai_harness/pydantic_ai_harness/memory/_capability.py) | 工具、状态存储与提示注入 |
+| 7 | [Planning](../src/pydantic_ai_harness/pydantic_ai_harness/planning/_capability.py)、[Memory](../src/pydantic_ai_harness/pydantic_ai_harness/memory/_capability.py) | 父子任务、依赖与状态、计划及记忆的提示注入 |
 | 8 | [Skills](../src/pydantic_ai_harness/pydantic_ai_harness/skills/_capability.py) | 发现技能与延迟加载 |
 | 9 | [SubAgents](../src/pydantic_ai_harness/pydantic_ai_harness/subagents/_toolset.py) | 子 Agent 的独立历史与父任务用量 |
 | 10 | [ToolOutputLimits](../src/pydantic_ai_harness/pydantic_ai_harness/tool_output_limits/_capability.py)、[Compaction](../src/pydantic_ai_harness/pydantic_ai_harness/compaction/) | 新工具结果限长与旧历史压缩的区别 |
@@ -59,6 +59,29 @@ just harness-test
 | 16 | [mcp_client.py](mcp_client.py)：`create_mcp_capability`；[mcp_server.py](mcp_server.py)：`mcp_add` | 工具发现、跨进程调用、结果回传；核心入口是 [MCPToolset](../pydantic_ai_slim/pydantic_ai/mcp.py) |
 
 建议展开 `ctx.deps`、`ctx.usage`、工具参数、`messages` 和工具结果。能力列表不是只从上到下执行一次的流水线：不同钩子由核心在不同时机调用。
+
+## 任务拆解的断点顺序
+
+用 **Debug Harness** 运行完整流程，在下列位置观察 `study` 父任务和 `research`、`practice`、`report` 三个子任务。任务结构与固定 ID 由教学提示给定，模型生成工具参数；真实业务工具成功后，导览才允许推进到相应任务的完成更新。
+
+| 断点 | 观察内容 |
+| --- | --- |
+| [main.py](main.py) 的 `build_agent`、`Walkthrough` | `enable_subtasks=True` 与五个计划工具；业务成功后怎样开放状态更新步骤 |
+| [PlanningToolset.write_plan](../src/pydantic_ai_harness/pydantic_ai_harness/planning/_toolset.py) | 模型传入的四个 `PlanItem`，检查 `id`、`parent_id` 与初始 `status` |
+| 同文件的 `set_dependency`、`get_available_tasks` | `practice` 依赖 `research`、`report` 依赖 `practice`；状态变为 `blocked` 后不进入可用列表 |
+| 同文件的 `update_task_status`、`_sync_dependency_blocks` | 阶段从 `in_progress` 到 `completed`，下一项从 `blocked` 回到 `pending` |
+| [SqlitePlanStore.set_items / update_item](../src/pydantic_ai_harness/pydantic_ai_harness/planning/_store.py) | 整表创建与单项更新怎样保存到 `plan.db` |
+| [Planning.wrap_model_request](../src/pydantic_ai_harness/pydantic_ai_harness/planning/_capability.py) | 读取最新计划，生成当前请求的 `<plan-reminder>` |
+| [main.py](main.py) 的 `preserve_plan_reminder` | 在压缩前将当次提醒暂存到 `ctx.deps.plan_reminder` |
+| [ClampOversizedMessages.before_model_request](../src/pydantic_ai_harness/pydantic_ai_harness/compaction/_clamp_oversized_messages.py) | 从 `ctx.messages` 重建请求，观察临时计划提醒被覆盖 |
+| [main.py](main.py) 的 `guide_current_step` | 压缩后若提醒缺失，恢复同一个 `UserPromptPart`，再追加教学提示 |
+| [PlanningToolset.read_plan_tree](../src/pydantic_ai_harness/pydantic_ai_harness/planning/_toolset.py) | 模型工具名 `read_plan` 在子任务模式下映射到此方法，`hierarchical=True` 渲染父子结构 |
+
+这两个公开 `Hooks` 是示例针对当前 Planning 与压缩组合的衔接，没有修改库。保留的是 Planning 当次生成的提醒，不重新生成计划，也不将提醒加入 `ctx.messages`；对比 `request_context.messages` 与持久消息历史即可观察区别。
+
+子任务完成只会解除后续依赖，不会自动执行下一项，也不会自动把父任务标为完成。观察最后一次 `update_task_status(task_id='study', status='completed')`，确认父任务由模型显式更新。
+
+断点中展开每个任务的 `id`、`parent_id`、`depends_on`、`status`。运行后打开 `output/demo/plan_history.json`，逐条比较 `{tool, items}`；`plan.json` 保存最终四项任务，`plan.db` 是实际存储。完整拆解结构见 [任务拆解、依赖与进度](README.md#任务拆解依赖与进度)。
 
 ## 三个进阶实验
 

@@ -7,6 +7,8 @@ from dataclasses import dataclass, field, replace
 from os import name as platform_name
 from pathlib import Path
 
+from pydantic import TypeAdapter
+
 from pydantic_ai import Agent, AgentRunResult, ModelRetry, RunContext
 from pydantic_ai.capabilities import AbstractCapability, Hooks, PrepareTools, ValidatedToolArgs
 from pydantic_ai.messages import ModelRequest, ToolCallPart, UserPromptPart
@@ -64,7 +66,8 @@ else:
     from tool_descriptions import TOOL_DESCRIPTIONS
 
 WORKSPACE = Path(__file__).resolve().parent / 'output' / 'demo'
-REQUEST_LIMIT = 40
+REQUEST_LIMIT = 64
+PLANNING_TOOLS = ('write_plan', 'read_plan', 'set_dependency', 'get_available_tasks', 'update_task_status')
 
 
 @dataclass(frozen=True)
@@ -73,16 +76,54 @@ class LessonStep:
 
     tool: str
     instruction: str
-    required_argument: tuple[str, str] | None = None
+    required_argument: tuple[str, str | bool] | None = None
     plan_status: TaskStatus | None = None
+    plan_dependency: str | None = None
 
 
 LESSON_STEPS = (
-    LessonStep('write_plan', '创建一项计划：学习 Harness 并写总结，status=in_progress。'),
+    LessonStep(
+        'write_plan',
+        '把“学习 Harness 并写总结”拆成完整的四项计划，一次传入 items：'
+        '父任务 id=study；三个子任务 id=research（收集资料）、practice（验证概念）、report（保存成果），'
+        '子任务的 parent_id 都是 study。每项 content 用中文描述具体工作，全部 status=pending、depends_on=[]。',
+    ),
+    LessonStep(
+        'set_dependency',
+        '验证概念依赖收集资料：task_id=practice、depends_on_id=research。',
+        ('task_id', 'practice'),
+        plan_dependency='research',
+    ),
+    LessonStep(
+        'set_dependency',
+        '保存成果依赖验证概念：task_id=report、depends_on_id=practice。',
+        ('task_id', 'report'),
+        plan_dependency='practice',
+    ),
+    LessonStep('get_available_tasks', '查看可执行任务，观察 practice 和 report 因依赖未完成而 blocked。'),
+    LessonStep(
+        'update_task_status',
+        '开始收集资料：task_id=research、status=in_progress。',
+        ('task_id', 'research'),
+        plan_status=TaskStatus.in_progress,
+    ),
     LessonStep('list_directory', '列出当前目录，path="."。', ('path', '.')),
     LessonStep('read_file', '读取 lesson.txt。', ('path', 'lesson.txt')),
     LessonStep('load_capability', '加载 study-notes 技能，id="study-notes"。', ('id', 'study-notes')),
     LessonStep('search_knowledge', '检索外部知识，query="Harness"；记录结果中的来源。', ('query', 'Harness')),
+    LessonStep(
+        'update_task_status',
+        '资料、技能和外部知识已读取，完成 research：status=completed。',
+        ('task_id', 'research'),
+        plan_status=TaskStatus.completed,
+    ),
+    LessonStep('get_available_tasks', '读回可执行任务，观察 research 完成后 practice 自动恢复为 pending。'),
+    LessonStep(
+        'update_task_status',
+        '开始验证概念：task_id=practice、status=in_progress。',
+        ('task_id', 'practice'),
+        plan_status=TaskStatus.in_progress,
+    ),
     LessonStep('mcp_add', '通过 MCP 服务计算 7 加 5，a=7、b=5。'),
     LessonStep(
         'ask_user_question',
@@ -90,7 +131,7 @@ LESSON_STEPS = (
         '{"questions":[{"header":"学习方式","question":"想怎样学习？",'
         '"options":[{"label":"先看例子"},{"label":"先看概念"}]}]}。',
     ),
-    LessonStep('learning_progress', '计算学习进度，completed=2、total=3。'),
+    LessonStep('learning_progress', '三个子任务中已完成资料收集，计算进度：completed=1、total=3。'),
     LessonStep('run_command', '执行 echo harness-demo。', ('command', 'echo harness-demo')),
     LessonStep('long_reference', '读取长参考资料，观察工具输出截断。'),
     LessonStep(
@@ -98,14 +139,46 @@ LESSON_STEPS = (
         '请 reviewer 审阅：Agent 管循环，Harness 提供可选工具、指令和钩子。任务放在 task 参数。',
         ('agent_name', 'reviewer'),
     ),
+    LessonStep(
+        'update_task_status',
+        '工具实验和子代理审阅已完成，完成 practice：status=completed。',
+        ('task_id', 'practice'),
+        plan_status=TaskStatus.completed,
+    ),
+    LessonStep('get_available_tasks', '查看可执行任务，观察 practice 完成后 report 自动恢复为 pending。'),
+    LessonStep(
+        'update_task_status',
+        '开始保存成果：task_id=report、status=in_progress。',
+        ('task_id', 'report'),
+        plan_status=TaskStatus.in_progress,
+    ),
     LessonStep('write_memory', '保存一条包含 Harness 的中文学习结论到 MEMORY.md。'),
     LessonStep('read_memory', '读回 MEMORY.md。', ('file', 'MEMORY.md')),
     LessonStep('search_memory', '搜索长期笔记，query="Harness"。', ('query', 'Harness')),
     LessonStep('search_conversation_history', '搜索已保存的对话历史，query="Harness"。', ('query', 'Harness')),
     LessonStep('write_file', '把中文学习总结写入 report.md，content 自己归纳。', ('path', 'report.md')),
-    LessonStep('write_plan', '把计划整表更新为一项已完成任务，status=completed。', plan_status=TaskStatus.completed),
-    LessonStep('read_plan', '读回已完成的计划。'),
+    LessonStep(
+        'update_task_status',
+        '记忆与报告已经写入，完成 report：status=completed。',
+        ('task_id', 'report'),
+        plan_status=TaskStatus.completed,
+    ),
+    LessonStep(
+        'update_task_status',
+        '三个子任务已完成，显式完成父任务 study：status=completed；父任务不会自动完成。',
+        ('task_id', 'study'),
+        plan_status=TaskStatus.completed,
+    ),
+    LessonStep('read_plan', '按树形读回完整计划，hierarchical=true，保留父子关系和依赖。', ('hierarchical', True)),
 )
+
+
+@dataclass
+class PlanSnapshot:
+    """记录计划工具调用后的真实存储状态，供断点观察和 JSON 导出."""
+
+    tool: str
+    items: list[PlanItem]
 
 
 @dataclass
@@ -121,12 +194,15 @@ class LearningDeps:
     context_events: int = 0
     successful_delegations: int = 0
     continuing: bool = False
+    plan_history: list[PlanSnapshot] = field(default_factory=list[PlanSnapshot])
+    plan_reminder: UserPromptPart | None = None
 
 
 @dataclass
 class Walkthrough(AbstractCapability[LearningDeps]):
     """用公开钩子观察真实执行；guided 模式让每个主要工具都有断点机会."""
 
+    plan_store: SqlitePlanStore
     guided: bool = True
 
     def get_instructions(self) -> Callable[[RunContext[LearningDeps]], str]:
@@ -171,10 +247,26 @@ class Walkthrough(AbstractCapability[LearningDeps]):
                 name, value = step.required_argument
                 if args.get(name) != value:
                     raise ModelRetry(f'本步要求 {name}={value!r}。{step.instruction}')
-            if step.plan_status is not None:
+            if call.tool_name == 'write_plan':
                 items: list[PlanItem] = args['items']  # Planning 已将参数校验为公开的 PlanItem 类型。
-                if not items or any(item.status is not step.plan_status for item in items):
-                    raise ModelRetry(f'本步要求非空计划，所有任务 status={step.plan_status.value!r}。')
+                parents = {'study': None, 'research': 'study', 'practice': 'study', 'report': 'study'}
+                if (
+                    len(items) != len(parents)
+                    or {item.id: item.parent_id for item in items} != parents
+                    or any(
+                        item.status is not TaskStatus.pending or item.depends_on or not item.content.strip()
+                        for item in items
+                    )
+                ):
+                    raise ModelRetry(f'需要父任务 study 和三个子任务，全部 pending，依赖稍后设置。{step.instruction}')
+            if step.plan_status is not None and args.get('status') != step.plan_status:
+                raise ModelRetry(f'本步要求 status={step.plan_status.value!r}。')
+            if step.plan_dependency is not None and args.get('depends_on_id') != step.plan_dependency:
+                raise ModelRetry(f'本步要求 depends_on_id={step.plan_dependency!r}。')
+            if call.tool_name == 'update_task_status' and args.get('task_id') == 'study':
+                children = [item for item in await self.plan_store.get_items() if item.parent_id == 'study']
+                if len(children) != 3 or any(item.status is not TaskStatus.completed for item in children):
+                    raise ModelRetry('三个子任务尚未全部完成，不能完成父任务。')
         return args
 
     async def after_tool_execute(
@@ -189,6 +281,20 @@ class Walkthrough(AbstractCapability[LearningDeps]):
         # 校验失败、工具异常或护栏拒绝不会到达此钩子。
         if call.tool_name == 'delegate_task' and not ctx.deps.successful_delegations:
             raise ModelRetry('审阅子代理尚未成功完成，请重新委派。')
+        if call.tool_name in PLANNING_TOOLS:
+            items = await self.plan_store.get_items()
+            if self.guided and not ctx.deps.continuing and len(ctx.deps.completed_steps) < len(LESSON_STEPS):
+                step = LESSON_STEPS[len(ctx.deps.completed_steps)]
+                if step.plan_status is not None or step.plan_dependency is not None:
+                    task = next((item for item in items if item.id == args.get('task_id')), None)
+                    # Planning 的业务拒绝也可能返回普通文本，因此核对存储后才能推进教学步骤。
+                    if task is None or (step.plan_status is not None and task.status is not step.plan_status):
+                        raise ModelRetry('计划未更新到要求的状态，请根据当前计划重试。')
+                    if step.plan_dependency is not None and (
+                        task.depends_on != [step.plan_dependency] or task.status is not TaskStatus.blocked
+                    ):
+                        raise ModelRetry('依赖尚未保存或任务未进入 blocked，请重试。')
+            ctx.deps.plan_history.append(PlanSnapshot(tool=call.tool_name, items=items))
         ctx.deps.completed_tools.append(call.tool_name)
         if self.guided and not ctx.deps.continuing and len(ctx.deps.completed_steps) < len(LESSON_STEPS):
             step = LESSON_STEPS[len(ctx.deps.completed_steps)]
@@ -202,6 +308,25 @@ async def chinese_tools(ctx: RunContext[LearningDeps], tools: list[ToolDefinitio
     translated = [replace(tool, description=TOOL_DESCRIPTIONS.get(tool.name, tool.description)) for tool in tools]
     ctx.deps.tools.update({tool.name: tool for tool in translated})
     return translated
+
+
+async def preserve_plan_reminder(
+    ctx: RunContext[LearningDeps], request_context: ModelRequestContext
+) -> ModelRequestContext:
+    """保存 Planning 在 wrap_model_request 中生成的当次提醒，避免被后续压缩覆盖."""
+    # 当前压缩能力从 ctx.messages 重建请求，临时提醒不在该持久历史里。
+    ctx.deps.plan_reminder = next(
+        (
+            part
+            for message in request_context.messages
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+            and isinstance(part.content, list)
+            and '<plan-reminder>\n' in part.content
+        ),
+        None,
+    )
+    return request_context
 
 
 def input_guard(prompt: str) -> GuardrailResult:
@@ -248,6 +373,7 @@ def build_agent(
 ) -> tuple[Agent[LearningDeps, str], FileStepStore]:
     """组合内置能力、自定义 RAG 和 MCP；测试只替换 Model，不替换工具."""
     store = FileStepStore(workspace / 'steps')
+    plan_store = SqlitePlanStore(str(workspace / 'plan.db'))
     if model is None:
         model = create_model()
     reviewer = Agent(
@@ -267,7 +393,15 @@ def build_agent(
     async def guide_current_step(
         ctx: RunContext[LearningDeps], request_context: ModelRequestContext
     ) -> ModelRequestContext:
-        """在本次请求末尾强调真实工具调用，不把提醒写入持久历史."""
+        """压缩后恢复当次计划提醒，再强调当前步骤；两种提醒都不写入持久历史."""
+        plan_reminder = ctx.deps.plan_reminder
+        if plan_reminder is not None and not any(
+            plan_reminder in message.parts for message in request_context.messages
+        ):
+            request_context = replace(
+                request_context,
+                messages=[*request_context.messages, ModelRequest(parts=[plan_reminder])],
+            )
         if guided and not ctx.deps.continuing and len(ctx.deps.completed_steps) < len(LESSON_STEPS):
             step = LESSON_STEPS[len(ctx.deps.completed_steps)]
             reminder = (
@@ -293,9 +427,10 @@ def build_agent(
         retries={'tools': 8, 'output': len(LESSON_STEPS) + 2 if guided else 8},
         capabilities=[
             create_local_workspace(workspace),  # Windows 原生适配；POSIX 使用内置 LocalWorkspace。
-            Walkthrough(guided=guided),  # 自定义教学能力，不计入内置 Harness 能力。
+            Walkthrough(plan_store=plan_store, guided=guided),  # 自定义教学能力，不计入内置 Harness 能力。
             InputGuardrail(guard=input_guard),
             StepPersistence(store=store),
+            Hooks(before_model_request=preserve_plan_reminder),
             ClampOversizedMessages(max_part_chars=12_000),
             ClearToolResults(max_messages=12, keep_pairs=3, placeholder='[旧工具结果已清理，可搜索历史]'),
             SlidingWindowCompaction(max_messages=24, keep_messages=16),
@@ -306,7 +441,7 @@ def build_agent(
             Skills('skills'),
             KnowledgeRAG(),  # 自定义能力：工具通过 deps 调用应用提供的检索服务。
             create_mcp_capability(),  # 核心 MCP 能力：启动并连接独立的 stdio 服务进程。
-            Planning(store=SqlitePlanStore(str(workspace / 'plan.db')), tools=['write_plan', 'read_plan']),
+            Planning(store=plan_store, enable_subtasks=True, tools=PLANNING_TOOLS),
             SystemReminders(reminders=[Reminder('保持中文解释，完成后更新计划并给出总结。', interval=4)]),
             AskUser(answerer=answer_user),
             SubAgents(agents=[SubAgent(reviewer, description='检查学习总结的概念', max_calls=3)], max_depth=2),
@@ -368,7 +503,7 @@ async def run_example(
     deps = LearningDeps()
     if retrieval is not None:
         deps.retrieval = retrieval
-    limits = UsageLimits(request_limit=REQUEST_LIMIT, tool_calls_limit=32)
+    limits = UsageLimits(request_limit=REQUEST_LIMIT, tool_calls_limit=len(LESSON_STEPS) + 8)
     async with agent:
         result = await agent.run(
             '学习 Harness，完成资料阅读、计划、提问、审阅、记忆和 report.md，并给出总结。',
@@ -406,6 +541,11 @@ async def run_example(
         'note': '工具成功返回与能力注册分别记录；不代表每个护栏拒绝或压缩分支都已触发。',
     }
     (workspace / 'coverage.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
+    (workspace / 'plan_history.json').write_bytes(
+        TypeAdapter(list[PlanSnapshot]).dump_json(deps.plan_history, indent=2)
+    )
+    final_plan = await SqlitePlanStore(str(workspace / 'plan.db')).get_items()
+    (workspace / 'plan.json').write_bytes(TypeAdapter(list[PlanItem]).dump_json(final_plan, indent=2))
     return result
 
 

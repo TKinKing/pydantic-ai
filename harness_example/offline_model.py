@@ -22,14 +22,30 @@ from pydantic_ai.models.function import (  # 导入教学模型接口。
 def make_offline_model() -> FunctionModel:  # 每个运行创建新模型，避免演示步骤计数跨运行串联。
     """按顺序发出工具调用，让读者每次都能观察相同的 Harness 工作过程."""  # 调用参数由示例作者固定。
     calls = [  # 每次只发一个工具调用，让有先后依赖的动作按顺序完成。
-        ToolCallPart(  # 第一步创建当前计划。
+        ToolCallPart(  # 一次创建根任务和三个子任务，固定 id 供后续工具直接引用。
             'write_plan',  # 首次调用写计划工具。
-            {'items': [{'content': '学习 Harness 并写总结', 'status': 'in_progress'}]},  # 初始状态为进行中。
-        ),  # 制定计划。
+            {  # 初始任务都处于待办状态；依赖由后续工具调用显式建立。
+                'items': [
+                    {'id': 'study', 'content': '学习 Harness 并写总结', 'status': 'pending'},
+                    {'id': 'research', 'content': '收集资料', 'status': 'pending', 'parent_id': 'study'},
+                    {'id': 'practice', 'content': '验证概念', 'status': 'pending', 'parent_id': 'study'},
+                    {'id': 'report', 'content': '保存成果', 'status': 'pending', 'parent_id': 'study'},
+                ]
+            },
+        ),  # 父子关系描述任务拆解，依赖关系决定子任务的执行顺序。
+        ToolCallPart('set_dependency', {'task_id': 'practice', 'depends_on_id': 'research'}),  # 先收集资料再实践。
+        ToolCallPart('set_dependency', {'task_id': 'report', 'depends_on_id': 'practice'}),  # 先验证概念再保存成果。
+        ToolCallPart('get_available_tasks', {}),  # 观察 practice 和 report 因依赖未完成而被阻塞。
+        ToolCallPart('update_task_status', {'task_id': 'research', 'status': 'in_progress'}),  # 开始资料收集。
         ToolCallPart('list_directory', {'path': '.'}),  # 发现学习工作区的文件。
         ToolCallPart('read_file', {'path': 'lesson.txt'}),  # 读取真实文件，内容由 main.py 初始化。
         ToolCallPart('load_capability', {'id': 'study-notes'}),  # 按需加载技能正文，而非把所有技能塞入初始提示。
         ToolCallPart('search_knowledge', {'query': 'Harness'}),  # 通过注入的检索服务取得带来源的知识。
+        ToolCallPart(
+            'update_task_status', {'task_id': 'research', 'status': 'completed'}
+        ),  # 完成前置任务，解除实践阻塞。
+        ToolCallPart('get_available_tasks', {}),  # 观察 practice 已变成可执行任务。
+        ToolCallPart('update_task_status', {'task_id': 'practice', 'status': 'in_progress'}),  # 开始动手验证。
         ToolCallPart('mcp_add', {'a': 7, 'b': 5}),  # 实际跨进程调用 MCP server。
         ToolCallPart(  # 提问也是模型调用工具的一部分。
             'ask_user_question',  # AskUser 负责问题模式校验，回答界面由应用提供。
@@ -52,7 +68,9 @@ def make_offline_model() -> FunctionModel:  # 每个运行创建新模型，避�
                 ]  # 问题列表结束。
             },  # 问题参数结束。
         ),  # 提问调用结束。
-        ToolCallPart('learning_progress', {'completed': 2, 'total': 3}),  # 自定义工具通过 RunContext 访问用户依赖。
+        ToolCallPart(
+            'learning_progress', {'completed': 1, 'total': 3}
+        ),  # 三个子任务中已完成资料收集，工具读取用户依赖。
         ToolCallPart('run_command', {'command': 'echo harness-demo'}),  # 执行无副作用的命令，展示 Shell 工具。
         ToolCallPart('long_reference', {}),  # 产生长工具结果，实际触发输出截断。
         ToolCallPart(  # 主代理提供完整任务背景，子代理不会自动继承主对话。
@@ -62,6 +80,9 @@ def make_offline_model() -> FunctionModel:  # 每个运行创建新模型，避�
                 'task': '检查这个解释：Agent 管循环，Harness 能力提供可选工具和钩子。',  # 必须把审阅对象写入任务。
             },  # 子任务。
         ),  # 子代理只返回检查意见，不直接操作父代理的文件。
+        ToolCallPart('update_task_status', {'task_id': 'practice', 'status': 'completed'}),  # 实践完成后解除报告阻塞。
+        ToolCallPart('get_available_tasks', {}),  # 观察 report 已变成可执行任务。
+        ToolCallPart('update_task_status', {'task_id': 'report', 'status': 'in_progress'}),  # 开始保存学习成果。
         ToolCallPart(  # 主代理主动记录长期可复用的事实。
             'write_memory',  # 调用长期记忆写入工具。
             {'content': '学习结论：Agent 管循环，Harness 通过 capabilities 组合能力。'},  # 追加到主笔记。
@@ -76,12 +97,10 @@ def make_offline_model() -> FunctionModel:  # 每个运行创建新模型，避�
                 'content': '# 学习总结\n\nAgent 负责循环；Harness 提供工具、记忆、计划和钩子。\n',  # 写入的报告正文。
             },  # 中文正文。
         ),  # 文件写入调用结束。
-        ToolCallPart(  # 本例使用全量替换计划，避免引入任务标识的额外解析。
-            'write_plan',  # 再次写计划以更新状态。
-            {'items': [{'content': '学习 Harness 并写总结', 'status': 'completed'}]},  # 将当前计划置为完成。
-        ),  # 完成计划。
-        ToolCallPart('read_plan', {}),  # 读回最终计划，确认任务状态。
-    ]  # 十八次真实工具调用，包括独立 MCP 进程；无需模型服务。
+        ToolCallPart('update_task_status', {'task_id': 'report', 'status': 'completed'}),  # 报告与记忆均已保存。
+        ToolCallPart('update_task_status', {'task_id': 'study', 'status': 'completed'}),  # 子任务完成后显式完成根任务。
+        ToolCallPart('read_plan', {'hierarchical': True}),  # 以树形读回父子任务，保留依赖和完成状态。
+    ]  # 二十九次真实工具调用，包括任务拆解与独立 MCP 进程；无需模型服务。
     step = 0  # 演示计数存在模型闭包中，不依赖会被压缩的消息历史。
 
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:  # 与 FunctionModel 要求的签名一致。

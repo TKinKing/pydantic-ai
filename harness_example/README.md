@@ -1,6 +1,6 @@
 # Harness 完整学习示例
 
-**主入口：[main.py](main.py)。有 DeepSeek API Key 时调用 DeepSeek，否则使用本地 Ollama。依次执行 18 步工具流程、跨会话记忆、万条历史滑窗和增量摘要。**
+**主入口：[main.py](main.py)。有 DeepSeek API Key 时调用 DeepSeek，否则使用本地 Ollama。依次执行 29 步工具流程、跨会话记忆、万条历史滑窗和增量摘要。**
 
 直接调试：在本机 VS Code 打开仓库，在“运行和调试”中选择 **Debug Harness**，按 F5。它使用仓库的 `.venv`，自动启动完整例子并暂停在入口，不需要 WSL 或先运行 `just`。另一个入口 **Debug Agent** 启动 [基础 Agent 示例](../pydantic_agent_example/main.py)。调试列表只保留这两个入口，断点顺序见 [源码调试指南](DEBUGGING.md)。
 
@@ -152,6 +152,27 @@ python -m harness_example.rag
 python -m harness_example.mcp_client
 ~~~
 
+## 任务拆解、依赖与进度
+
+`build_agent()` 使用 `Planning(enable_subtasks=True, ...)`，开放 `write_plan`、`read_plan`、`set_dependency`、`get_available_tasks` 和 `update_task_status`。教学提示给定下表的任务结构与固定 ID，模型生成计划工具的参数，Agent 校验并执行。`write_plan` 一次创建父任务和三个子任务：
+
+| ID | 任务 | `parent_id` | 前置任务 |
+| --- | --- | --- | --- |
+| `study` | 学习 Harness 并完成总结 | 无 | 无 |
+| `research` | 收集资料 | `study` | 无 |
+| `practice` | 验证概念 | `study` | `research` |
+| `report` | 保存成果 | `study` | `practice` |
+
+随后两次 `set_dependency` 建立 `research` → `practice` → `report` 的先后关系。前置任务尚未完成时，Planning 将后续任务从 `pending` 改为 `blocked`；`get_available_tasks` 返回当前没有未完成依赖的可用任务。
+
+每个阶段开始前，模型调用 `update_task_status` 将任务设为 `in_progress`。本例的 `Walkthrough` 核对读资料、检索、验证或写报告等业务工具成功后，才推进到该阶段的 `completed` 更新。Planning 随后把依赖已满足的下一项从 `blocked` 解锁为 `pending`，下一项仍需显式开始。
+
+最后三个子任务都完成，再显式将父任务 `study` 设为 `completed`，调用 `read_plan(hierarchical=True)` 读回任务树。父子关系表示拆解层次，`depends_on` 表示先后约束；Planning 不会自动执行子任务，也不会因子任务全部完成而自动完成父任务。业务是否成功由应用核对，Planning 本身负责存储状态、处理依赖，并生成当次请求的计划提醒。
+
+本例组合中，`Planning.wrap_model_request` 生成的临时 `<plan-reminder>` 会被后续 `ClampOversizedMessages.before_model_request` 从 `ctx.messages` 重建请求时覆盖。因此示例通过两个公开 `Hooks` 衔接：`preserve_plan_reminder` 在压缩前暂存 Planning 生成的当次 `UserPromptPart`；`guide_current_step` 在压缩后确认提醒缺失时恢复它，再追加教学提示。Planning 原有存储和请求包装逻辑照常执行，提醒不写入持久消息历史；这一衔接在示例内实现，没有修改库。
+
+运行后对照 `output/demo/plan.json` 的最终四项任务与 `plan_history.json`：后者在每次计划工具执行后保存 `{tool, items}`，可以看到依赖建立、阻塞、解锁和完成的全过程。实际计划仍保存在 SQLite `plan.db`，两个 JSON 文件供学习和检查使用。
+
 ## 文件阅读顺序
 
 | 文件 | 观察重点 |
@@ -171,7 +192,7 @@ python -m harness_example.mcp_client
 
 ## 完整流程覆盖什么
 
-导览串联：写计划、列目录、读资料、加载技能、检索知识、MCP 加法、追问、计算进度、Shell、长工具输出、子代理、写/读/搜记忆、搜对话、写报告、完成计划、读计划。
+29 步导览串联任务拆解、依赖建立、可用任务查询、各阶段状态更新，以及列目录、读资料、加载技能、检索知识、MCP 加法、追问、计算进度、Shell、长工具输出、子代理、写/读/搜记忆、搜对话和写报告，最后读回完成的任务树。
 
 导览只是教学控制器：每次请求末尾明确提示当前步骤，模型仍生成工具参数，工具仍由 Agent 校验和执行。教学提示只用于当前请求，不累积进持久历史。过早输出最终答案会进入重试；工具成功后才能推进。
 
@@ -179,7 +200,7 @@ python -m harness_example.mcp_client
 | --- | --- | --- |
 | 工作区操作 | FileSystem、Shell / Windows NativeShell | 读 lesson.txt、执行 echo、写 report.md |
 | 工作区知识 | RepoContext、Skills | AGENTS.md 注入、study-notes 按需加载 |
-| 计划和长期知识 | Planning、Memory | SQLite 计划和文件记忆，读回、搜索 |
+| 计划和长期知识 | Planning、Memory | 父子任务、依赖阻塞与解锁、状态更新、SQLite 计划和文件记忆 |
 | 人机与委派 | AskUser、SubAgents | 明确标记的模拟偏好回答、与主代理共用模型配置的审阅子代理 |
 | 控制 | InputGuardrail、ToolGuardrail、OutputGuardrail | 输入校验、写入目标约束、最终答案重试 |
 | 历史控制 | ClampOversizedMessages、ClearToolResults、SlidingWindowCompaction | 单片段限长、旧结果清理、消息窗口裁剪 |
@@ -207,7 +228,10 @@ POSIX 组合包含 20 个通用 Harness 能力；Windows 组合包含 19 个，�
 | `messages.json`、`continued_messages.json` | 原运行与快照续接后的实际消息 |
 | `tools.json` | 模型可见的中文工具说明与 JSON Schema |
 | `coverage.json` | 本次导览实际执行记录，不是 Python 代码覆盖率 |
-| `plan.db`、`memory/` | 计划与长期笔记 |
+| `plan.db` | SQLite 任务树、依赖与状态 |
+| `plan.json` | 最终四项任务及其状态 |
+| `plan_history.json` | 每次计划工具执行后的 `{tool, items}` 快照 |
+| `memory/` | 长期笔记 |
 | `steps/` | 步骤事件、消息快照与工具副作用记录 |
 | `skills/study-notes/SKILL.md` | 按需加载的技能正文 |
 
