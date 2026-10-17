@@ -2,6 +2,85 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: Harness 完整流程 (Ollama / WSL)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "harness_example.main",
+            "cwd": "${workspaceFolder}",
+            "python": "${input:harnessWslPython}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "PYTHONUTF8": "1",
+                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
+                "OLLAMA_BASE_URL": "${input:harnessWslOllamaUrl}"
+            }
+        },
+        {
+            "name": "Python: Harness 完整流程 (离线断点 / WSL)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "harness_example.main",
+            "cwd": "${workspaceFolder}",
+            "python": "${input:harnessWslPython}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "PYTHONUTF8": "1"
+            },
+            "args": [
+                "--mode",
+                "offline"
+            ]
+        },
+        {
+            "name": "Python: Harness 进阶组件 (Ollama)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "harness_example.advanced",
+            "cwd": "${workspaceFolder}",
+            "python": "${input:harnessWslPython}",
+            "windows": {
+                "python": "${workspaceFolder}/.venv/Scripts/python.exe"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/.env",
+            "args": [
+                "--lesson",
+                "${input:harnessLesson}"
+            ],
+            "env": {
+                "PYTHONUTF8": "1",
+                "OLLAMA_MODEL": "${input:harnessOllamaModel}",
+                "OLLAMA_BASE_URL": "${input:learningOllamaUrl}"
+            }
+        },
+        {
+            "name": "Python: Harness 进阶组件 (离线断点)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "harness_example.advanced",
+            "cwd": "${workspaceFolder}",
+            "python": "${input:harnessWslPython}",
+            "windows": {
+                "python": "${workspaceFolder}/.venv/Scripts/python.exe"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "envFile": "${workspaceFolder}/.env",
+            "args": [
+                "--lesson",
+                "${input:harnessLesson}",
+                "--offline"
+            ],
+            "env": {
+                "PYTHONUTF8": "1"
+            }
+        },
+        {
             "name": "Python: Pydantic AI 学习示例 (Ollama)",
             "type": "debugpy",
             "request": "launch",
@@ -26,7 +105,7 @@
             "request": "launch",
             "module": "pydantic_harness_example.main",
             "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/.venv/bin/python",
+            "python": "${input:harnessWslPython}",
             "windows": {
                 "python": "${workspaceFolder}/.venv/Scripts/python.exe"
             },
@@ -116,6 +195,17 @@
             "type": "promptString",
             "description": "Harness 本地模型；默认使用同一 Qwen 权重的 16K 上下文配置",
             "default": "qwen2.5-harness:14b-16k"
+        },
+        {
+            "id": "harnessLesson",
+            "type": "pickString",
+            "description": "Harness 进阶组件：代码模式 / 动态工作流 / 后台工具",
+            "options": [
+                "code-mode",
+                "workflow",
+                "background"
+            ],
+            "default": "code-mode"
         }
     ]
 }

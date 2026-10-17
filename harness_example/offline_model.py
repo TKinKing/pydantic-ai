@@ -85,7 +85,7 @@ def make_offline_model() -> FunctionModel:  # 每个运行创建新模型，避�
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:  # 与 FunctionModel 要求的签名一致。
         """返回下一条工具请求；遇到参数重试立即报错，避免演示掩盖工具调用错误."""  # 真实模型通常会自行纠错。
         nonlocal step  # 同一轮演示的多次模型请求共享当前步骤。
-        for message in messages[-1:]:  # 只检查当前请求的最新结果，旧历史可能已经压缩。
+        for message in messages:  # 固定剧本不预期任何重试；也检查请求尾部教学提醒之前的工具结果。
             if isinstance(message, ModelRequest):  # 核心请求消息可包含工具返回或重试提示。
                 for part in message.parts:  # 一个请求可能携带多种消息片段。
                     if isinstance(part, RetryPromptPart):  # 参数不合法等问题会产生这种核心重试消息。
@@ -118,3 +118,12 @@ def make_offline_model() -> FunctionModel:  # 每个运行创建新模型，避�
                 yield part.content  # 核心收到文字后继续执行输出校验与结束钩子。
 
     return FunctionModel(respond, stream_function=stream)  # 同时支持普通请求与流式请求。
+
+
+def make_reviewer_model() -> FunctionModel:
+    """离线子代理只检查调用链，不模拟真实模型的审阅质量."""
+
+    def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart('概念检查：Agent 管理循环，Harness 通过能力组合行为。')])
+
+    return FunctionModel(respond)

@@ -1,165 +1,135 @@
-# 中文 Harness 学习示例
+# 本地 Harness 完整学习示例
 
-只看 Pydantic AI 核心 Agent 的常用 API，可先运行并阅读 [核心 Agent 中文示例](../pydantic_agent_example/README.md)。
+**主入口：[main.py](main.py)。默认用本地 Ollama 逐步执行工具，串起 20 个通用 Harness 能力。**
 
-例子入口是 [main.py](main.py)，直接运行即可。默认使用本机 Ollama 的 `qwen2.5:14b-instruct-q4_K_M`，主代理和审阅子代理都进行真实本地推理。任务和模拟回答固定，不等待终端输入。可通过 `OLLAMA_MODEL`、`OLLAMA_BASE_URL` 环境变量切换模型和地址。
+VS Code 用 **Remote - WSL** 打开仓库，选择 **Python: Harness 完整流程 (Ollama / WSL)**，按 F5。断点顺序见 [源码调试指南](DEBUGGING.md)。
 
-这个例子用“读取学习资料并写总结”串起 **20 个 Harness 能力**，覆盖大部分通用能力类别。它没有启用所有外部服务集成，也不是把 20 个能力都变成了模型可以调用的工具：有些能力通过生命周期钩子自动工作。
+## 运行
 
-所有非空 Python 代码行都有中文注释，自定义工具有中文说明，启用的内置工具也有中文用途和参数说明。`PrepareTools` 翻译准备阶段可见的工具描述；核心随后生成的 `load_capability` 加载器保留上游描述，其中文对照在 `tool_descriptions.py`。内置工具的参数名、JSON Schema 约束和返回协议保持上游格式；部分内置返回文字仍为英文。不要修改工具源码来翻译它们。
+仓库根目录的 PowerShell：
 
-## 先运行
+~~~powershell
+.\harness_example\run_ollama.ps1
+# 不请求模型，固定决策，反复调试真实工具链：
+.\harness_example\run_ollama.ps1 -Mode offline
+~~~
 
-### 当前 Windows 机器
+脚本使用本机已有 WSL Python，并自动获取 Windows 的 WSL 网关地址。`OLLAMA_MODEL`、`OLLAMA_BASE_URL` 可覆盖模型和接口。默认沿用 `qwen2.5-harness:14b-16k`，主代理和审阅子代理均连接本地 Ollama。
 
-最小示例可以直接运行，不需要 API Key：
+| 模式 | 命令 | 行为 |
+| --- | --- | --- |
+| 逐步导览，默认 | `python -m harness_example.main` | 每步缩小可用工具范围，模型生成参数，框架执行工具 |
+| 自主运行 | `python -m harness_example.main --mode free` | 同一组能力，模型自行选择工具，不保证覆盖每一步 |
+| 离线断点 | `python -m harness_example.main --mode offline` | FunctionModel 固定决策，真实工具、护栏、文件和存储仍实际执行 |
 
-```powershell
-.\.venv\Scripts\python.exe harness_example\quickstart.py # 使用已有 Windows Python 环境运行最小示例。
-```
+完整流程需要 POSIX。当前 `LocalWorkspaceBackend` 依赖 POSIX 进程组，Windows 原生 Python 会收到运行环境提示。Windows 原生可运行 [追问与恢复示例](../pydantic_harness_example/README.md) 和 [最小 Planning 示例](quickstart.py)。
 
-综合示例使用 WSL 的学习环境。先确保 Windows Ollama 已启动，`ollama list` 中存在上述模型。安装适配依赖并运行：
+## 环境
 
-```powershell
-wsl -- /home/tk/.cache/pydantic-ai-harness-learning-venv/bin/uv pip install --python /home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python openai # 安装 Ollama 适配所需 SDK。
-.\harness_example\run_ollama.ps1 # 自动获取 Windows 网关地址，通过 WSL 运行本地模型。
-```
+本机 WSL Python 为 `/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python`；它与 Windows `.venv` 分开。新环境请从同一份当前源码安装：
 
-`run_ollama.ps1` 使用本机已有的 WSL 学习环境路径；换机器时调整脚本里的 `$pythonExe`。支持通过 PowerShell 的 `$env:OLLAMA_MODEL` 和 `$env:OLLAMA_BASE_URL` 覆盖默认配置。
+~~~bash
+python3 -m venv ~/.cache/pydantic-ai-harness-learning-venv
+~/.cache/pydantic-ai-harness-learning-venv/bin/python -m pip install uv
+~/.cache/pydantic-ai-harness-learning-venv/bin/uv pip install \
+  --python ~/.cache/pydantic-ai-harness-learning-venv/bin/python \
+  -e ./pydantic_graph -e './pydantic_ai_slim[openai]' \
+  -e './src/pydantic_ai_harness[skills,code-mode,dynamic-workflow]' pytest debugpy
+~~~
 
-这里使用 WSL 是因为当前检出的 `LocalWorkspaceBackend` 明确只支持 POSIX：它依赖进程组实现命令超时后的清理。直接用 Windows Python 运行综合示例，会收到中文提示。最小示例没有文件或命令工作区，因此没有这个限制。
+默认模型使用原 Qwen 权重，服务上下文设置为 16384 tokens。在 Windows Ollama 中创建：
 
-### 其他 Linux、macOS 或新的 WSL 环境
+~~~powershell
+ollama create qwen2.5-harness:14b-16k -f ./pydantic_harness_example/Modelfile
+ollama list
+~~~
 
-在仓库根目录安装**当前源码**，让核心、图执行器与 Harness 保持一致。不要把仓库里的新 Harness 和旧版已发布核心混装。
+WSL 中从仓库根目录运行：
 
-```bash
-python3 -m venv ~/.cache/pydantic-ai-harness-learning-venv # 创建独立学习环境，不替换仓库已有虚拟环境。
-~/.cache/pydantic-ai-harness-learning-venv/bin/python -m pip install uv # 安装依赖管理工具。
-~/.cache/pydantic-ai-harness-learning-venv/bin/uv pip install --python ~/.cache/pydantic-ai-harness-learning-venv/bin/python -e ./pydantic_graph -e './pydantic_ai_slim[openai]' -e './src/pydantic_ai_harness[skills]' # 从本地源码安装三个包及技能解析依赖。
-~/.cache/pydantic-ai-harness-learning-venv/bin/python harness_example/main.py # 执行本地 Ollama 综合演示。
-```
+~~~bash
+export OLLAMA_MODEL='qwen2.5-harness:14b-16k'
+# Windows Ollama + WSL NAT；Ollama 需监听 WSL 可访问的地址。
+export OLLAMA_BASE_URL="http://$(ip -4 route show default | awk '{print $3}'):11434/v1"
+/home/tk/.cache/pydantic-ai-harness-learning-venv/bin/python -m harness_example.main
+~~~
 
-依赖安装需要联网。安装完成后调用本地 Ollama，不需要付费 API 密钥。Ollama 使用 OpenAI 兼容接口，见 [官方说明](https://docs.ollama.com/api/openai-compatibility)。
-
-默认地址为 `http://localhost:11434/v1`。如果 WSL 无法访问 Windows 的 localhost，请将 `OLLAMA_BASE_URL` 设为 WSL 可访问的 Windows Ollama 地址（带 `/v1`），并确认 Ollama 的监听地址支持该连接。
-
-```bash
-OLLAMA_MODEL=qwen2.5:14b-instruct-q4_K_M OLLAMA_BASE_URL=http://localhost:11434/v1 ~/.cache/pydantic-ai-harness-learning-venv/bin/python harness_example/main.py
-```
-
-真实模型不保证调用所有工具或触发全部能力；运行后检查 `messages.json` 和 `report.md`。
+Ollama 在 WSL 内或使用镜像网络时，可使用 `http://localhost:11434/v1`。完整流程包含多次工具请求、子代理审阅和快照续接，运行时间取决于本地推理速度。
 
 ## 文件阅读顺序
 
-| 文件 | 学什么 |
+| 文件 | 观察重点 |
 | --- | --- |
-| [quickstart.py](quickstart.py) | `Agent`、`capabilities`、`Planning`、`run_sync` 的最小关系 |
-| [main.py](main.py) 的 `build_agent` | 工作区、20 个能力、依赖注入、业务工具、事件订阅怎样组合 |
-| [main.py](main.py) 的 `main` | 应用如何管理目录、资源生命周期、运行预算和持久化产物 |
-| [tool_descriptions.py](tool_descriptions.py) | 每个内置或自定义工具的中文用途和主要参数 |
-| [offline_model.py](offline_model.py) | 如何通过 `FunctionModel` 固定模型决策、验证真实工具链；普通和流式响应怎样转换 |
+| [quickstart.py](quickstart.py) | Agent + Planning 的最小关系 |
+| [main.py](main.py) 的 `build_agent` | 工作区、20 个能力、依赖与事件 |
+| [main.py](main.py) 的 `Walkthrough` | 工具范围、执行成功后推进、提前输出重试 |
+| [main.py](main.py) 的 `run_example` | 保存快照、读回历史、真正发起下一轮 run |
+| [tool_descriptions.py](tool_descriptions.py) | 内置工具的中文用途，保留上游参数模式 |
+| [offline_model.py](offline_model.py) | 固定模型决策，验证普通与流式执行路径 |
+| [advanced.py](advanced.py) | CodeMode、DynamicWorkflow、BackgroundTools 独立实验 |
 
-`offline_model.py` 是教学支架，不是生产 Agent 的业务编排方案。真实模型通常自己决定调用哪个工具、传哪些参数，以及如何根据结果继续。
+## 完整流程覆盖什么
 
-## 先理解这几个区别
+导览串联：写计划、列目录、读资料、加载技能、追问、计算进度、Shell、长工具输出、子代理、写/读/搜记忆、搜对话、写报告、完成计划、读计划。
 
-| 概念 | 在 Pydantic AI 中的位置 | 本例对应 |
+导览只是教学控制器：每次请求末尾明确提示当前步骤，模型仍生成工具参数，工具仍由 Agent 校验和执行。教学提示只用于当前请求，不累积进持久历史。过早输出最终答案会进入重试；工具成功后才能推进。自由模式取消步骤限制。
+
+| 能力组 | Harness 组件 | 可观察行为 |
 | --- | --- | --- |
-| `Agent` | 核心运行时，管理模型请求、工具执行、重试、消息历史和输出 | `build_agent()` 创建的主代理 |
-| `Model` | 核心模型接口，适配供应商或本地测试函数 | `OpenAIChatModel` + `OllamaProvider` |
-| Capability | 组合工具、指令与生命周期钩子的核心抽象 | Harness 实现的 `Memory`、`Planning` 等 |
-| Tool / Toolset | 模型可调用的函数与工具集合；由核心校验参数并执行 | `read_file`、`write_plan`、`learning_progress` |
-| Hook | 在运行、模型请求、工具执行等时机介入 | 输入护栏、输出限长、快照保存等自动行为 |
-| Workspace | 统一文件与命令所在环境，核心提供接口 | `LocalWorkspace` 指向本次学习目录 |
-| `RunContext` / deps | 应用向工具传递身份、连接和运行状态 | `LearningDeps.learner` 不由模型填写 |
+| 工作区操作 | FileSystem、Shell | 读 lesson.txt、执行 echo、写 report.md |
+| 工作区知识 | RepoContext、Skills | AGENTS.md 注入、study-notes 按需加载 |
+| 计划和长期知识 | Planning、Memory | SQLite 计划和文件记忆，读回、搜索 |
+| 人机与委派 | AskUser、SubAgents | 明确标记的模拟偏好回答、本地模型审阅子代理 |
+| 控制 | InputGuardrail、ToolGuardrail、OutputGuardrail | 输入校验、写入目标约束、最终答案重试 |
+| 历史控制 | ClampOversizedMessages、ClearToolResults、SlidingWindowCompaction | 单片段限长、旧结果清理、消息窗口裁剪 |
+| 结果与预算 | ToolOutputLimits、WarnNearLimits、ReportContextUsage | 长结果截断、预算提醒、上下文事件 |
+| 状态与续接 | StepPersistence、ConversationSearch | 快照落盘、搜索历史、从快照发起后续 run |
+| 周期指令 | SystemReminders | 到达间隔后为本次请求加入提醒 |
 
-`LocalWorkspace` 和 `PrepareTools` 属于 **Pydantic AI 核心**，不计入下面的 20 个 Harness 能力。`SubAgent`、`Reminder`、`Band`、`FileStore` 是配置或存储对象，也没有重复计数。
+共 20 个通用 Harness 能力。LocalWorkspace、PrepareTools、Hooks、Agent、Model、RunContext、UsageLimits 属于核心；存储对象不重复计数。
 
-## 二十个能力分别做什么
+能力挂载、工具成功执行、阈值策略触发是三个不同事实。短流程可能不会触发单消息限长或预算警告；可以改阈值并在相应钩子处观察。`coverage.json` 记录实际工具步骤，不代表全部能力的所有分支都已执行。
 
-| Harness 能力 | 在本例中的作用 | 能力如何观察（实际触发由本地模型决定） |
-| --- | --- | --- |
-| `InputGuardrail` | 模型请求前校验业务输入 | 正常输入放行；含“示例禁止”的输入可被拒绝 |
-| `StepPersistence` | 保存步骤事件、快照和工具副作用状态 | 查看 `steps/`；程序结束时调用 `continue_run` 读回快照 |
-| `ClampOversizedMessages` | 限制历史中单个超大文本片段 | 已配置 12,000 字符兜底；默认短流程不刻意触发 |
-| `ClearToolResults` | 历史超过阈值后清理旧工具结果 | `messages.json` 出现中文“旧工具结果已清理”占位符 |
-| `SlidingWindowCompaction` | 请求过长时只发送较近消息窗口 | 消息超过配置的 24 条阈值时触发；完整细节可查快照 |
-| `Memory` | 维护跨运行的 Markdown 笔记 | 可调用写入、读取、搜索；查看 `memory/` |
-| `FileSystem` | 读取资料、列目录和写报告 | 可读写工作区文件；查看生成的 `report.md` |
-| `Shell` | 在工作区执行命令 | 可执行 `echo harness-demo`，工具返回标准输出 |
-| `RepoContext` | 加载当前工作目录中的项目说明 | 自动读取本例生成的中文 `AGENTS.md` |
-| `Skills` | 先发现技能，再按需加载正文 | 调用 `load_capability(id='study-notes')` 后加载正文 |
-| `Planning` | 给模型一份可更新的任务计划 | 可写入计划、完成计划、读回；数据在 `plan.db` |
-| `SystemReminders` | 每四次模型请求追加一次中文提醒 | 提醒作用于当前请求，不应在持久历史中不断累积 |
-| `AskUser` | 验证问题与回答的结构，连接人机界面 | 固定选择第一项并打印“模拟回答”，不等待输入 |
-| `SubAgents` | 将独立子任务委派给另一个 Agent | 调用 `delegate_task` 运行 `reviewer` 子代理；本地模型生成真实审阅意见 |
-| `ConversationSearch` | 从持久化快照找回过去细节 | 可搜索当前对话中的 `Harness`，与长期笔记搜索区分 |
-| `ToolGuardrail` | 真正执行工具前检查调用 | 允许写 `report.md`；拒绝其他写入目标与记忆删除 |
-| `ToolOutputLimits` | 长工具返回进入历史之前截短或溢出存储 | `long_reference` 返回长文本，调用时触发 350 字符截断策略 |
-| `WarnNearLimits` | 接近迭代预算时提醒收尾 | 接近配置的轮数预算时触发提醒；硬性停止由核心 `UsageLimits` 负责 |
-| `ReportContextUsage` | 向应用发出上下文占用事件 | 每轮打印 `[上下文]`；估算占用不是供应商计费数据 |
-| `OutputGuardrail` | 最终输出交给应用前执行校验 | 最终文字包含“总结”才放行，否则要求重试 |
+综合流程的 AskUser 使用明确标记的模拟回答，方便不等待输入地重复调试。真实终端追问、`DeferredToolRequests`、同一 conversation 暂停恢复在 [交互示例](../pydantic_harness_example/main.py) 中运行。
 
-组合顺序也有含义：先对历史做压缩，再注入记忆；`Planning` 放在 `SystemReminders` 前面，避免把动态提醒当作计划提醒的缓存锚点。具体钩子的调用方向由核心组合机制决定，不能把列表简单理解成执行一次的流水线。
+`continue_run` 读回消息历史，应用再发起后续 run。它不恢复 Python 调用栈，不回滚文件，也不会自动重建所有业务状态；示例显式保留依赖并复用存储。
 
-## 一次运行会发生什么
+## 运行产物
 
-当前主代理由 Ollama 自主决定工具顺序。下面是 `offline_model.py` 保留的原离线剧本，可用于对照理解工具链：
+产物位于 `harness_example/output/demo/`，已忽略，不提交 Git。重复运行复用记忆和快照，覆盖本次报告和导出文件。
 
-1. 创建计划、列出目录、读取 `lesson.txt`。
-2. 加载技能，询问学习方式，计算学习进度。
-3. 执行 `echo`，获取长资料并触发截断，委派子代理审阅。
-4. 写入、读回、搜索长期记忆，再搜索对话历史。
-5. 写 `report.md`，把计划更新为完成，读回最终计划。
-
-工具真正执行的是 Harness 和核心实现。固定剧本只决定模型“说什么”，不会直接调用文件工具内部方法，也不会绕过护栏。
-
-原离线支架的 `FunctionModel` 同时提供普通与流式入口。当前入口已改用 `OpenAIChatModel`，支持运行事件路径需要的流式请求；审阅子代理使用同一个 Ollama 模型。
-
-## 查看运行结果
-
-每次运行都使用固定目录 `output/demo/`。报告、输入资料、消息导出和工具目录会覆盖更新，计划更新为本次状态，长期记忆与运行快照保留。此目录已在示例自己的 `.gitignore` 中排除。
-
-| 产物 | 含义 |
+| 产物 | 内容 |
 | --- | --- |
-| `report.md` | 文件工具实际写入的中文学习总结 |
-| `messages.json` | 核心消息历史，可看到调用参数、返回结果、压缩后的占位符 |
-| `tools.json` | 实际注册的工具中文说明及原始参数模式 |
-| `plan.db` | `Planning` 的 SQLite 状态，不等同于对话历史 |
-| `memory/` | `Memory` 的 Markdown 笔记及写入回执 |
-| `steps/` | `StepPersistence` 的事件、快照、工具副作用记录 |
-| `skills/study-notes/SKILL.md` | 本例 Agent 可以按需加载的中文技能 |
-| `AGENTS.md`、`lesson.txt` | 本例工作区的说明和输入资料 |
+| `report.md` | 模型通过 FileSystem 写出的总结 |
+| `messages.json`、`continued_messages.json` | 原运行与快照续接后的实际消息 |
+| `tools.json` | 模型可见的中文工具说明与 JSON Schema |
+| `coverage.json` | 本次导览实际执行记录，不是 Python 代码覆盖率 |
+| `plan.db`、`memory/` | 计划与长期笔记 |
+| `steps/` | 步骤事件、消息快照与工具副作用记录 |
+| `skills/study-notes/SKILL.md` | 按需加载的技能正文 |
 
-重复运行会复用同一个工作区，所以 `Memory` 能读到上一次演示保存的笔记。本地模型可使用 `old_text` 更新既有笔记；是否写入记忆取决于实际工具调用。
+## 进阶组件
 
-`continue_run()` 只读回可继续使用的消息列表，不会自动恢复 Python 局部变量、工作区文件或所有能力状态，也不会保证外部副作用恰好执行一次。真实模型的下一轮可以把读回的 `history` 传给 `agent.run(..., message_history=history)`；离线剧本会从第一步重演，所以不要用它验证自主续接能力。
+改变调用方式的能力分成三个独立实验，避免一个大组合遮蔽源码路径：
 
-## 修改示例配置
+~~~bash
+python -m harness_example.advanced --lesson code-mode
+python -m harness_example.advanced --lesson workflow
+python -m harness_example.advanced --lesson background
+# 固定决策，实际执行组件：
+python -m harness_example.advanced --lesson code-mode --offline
+~~~
 
-直接编辑 `main.py`：`WORKSPACE` 是固定输出目录，`OLLAMA_MODEL`、`OLLAMA_BASE_URL` 配置主代理和子代理模型，`answer_user()` 固定选择第一项，`main()` 中写死任务。框架要求的工具参数与钩子签名仍然保留，它们由 Agent 内部传递，不是运行前需要输入的配置。
+CodeMode 演示模型生成的 Python 经 Monty 调用工具；DynamicWorkflow 演示脚本调用子 Agent；BackgroundTools 演示任务提交、独立工作、结果注入。VS Code 的 **Harness 进阶组件** 配置可选择实验。
 
-## 本例没有启用的组件
+Coder 的组合继续看 [coder 预设](../pydantic_harness_example/README.md) 与 [Coder 源码](../src/pydantic_ai_harness/pydantic_ai_harness/coder/_capability.py)。云搜索、SaaS、云沙箱、计费和耐久引擎需要各自的服务环境，不在本地流程中伪造。完整能力列表见 [Harness 总览](../docs/harness/index.md)，构造参数见 [参数索引](../pydantic_harness_example/PARAMETERS.md)。模型审阅和缓存统计等专题可按对应文档继续学习。
 
-| 类别 | 继续学习的方向 | 本例未启用的原因 |
-| --- | --- | --- |
-| 完整组合 | `Coder`、`Researcher` | 适合快速应用；当前先拆开组件学习，叠加 `Coder` 会重复提供文件等工具 |
-| 代码执行与编排 | `CodeMode`、`DynamicWorkflow`、`BackgroundTools` | 增加解释器或并发语义，适合学完顺序工具流程后单独实验 |
-| 模型辅助控制 | `Advisor`、`TrajectoryJudge`、`ToolCallJudge`、总结式压缩 | 需要额外模型调用；固定答案不能演示真实判断质量 |
-| 计费与缓存 | `SpendLimits`、`WarnOnCacheBusts` | 离线教学模型没有真实供应商费用或提示缓存统计 |
-| 外部服务 | 搜索、浏览器、GitHub、Slack、Linear 等 | 需要联网、账号或浏览器运行环境 |
-| 执行隔离与耐久性 | 云沙箱、SSH、Bubblewrap、耐久执行引擎 | 需要额外基础设施；本地目录不是安全沙箱 |
+## 验证
 
-这个示例关注通用能力的实际组合，不声称覆盖全部 Harness 导出类。需要不可信命令执行时，应使用真正隔离的工作区；`FileSystem` 路径限制不会约束 `Shell` 的整个进程权限。
+在安装了源码依赖的 WSL Python 环境运行：
 
-## 对照源码和文档
+~~~bash
+python -m pytest harness_example/test_walkthrough.py harness_example/test_advanced.py -q -p no:cacheprovider
+python -m pytest pydantic_harness_example/test_harness.py -q -p no:cacheprovider
+~~~
 
-- [官方 Harness 总览](https://pydantic.dev/docs/ai/harness/)：能力类别与核心/Harness 边界。
-- [官方 Capabilities 概念](https://pydantic.dev/docs/ai/capabilities/overview/)：能力如何挂到核心 Agent。
-- [仓库 Harness 文档](../docs/harness/index.md)：与本次检出最接近的说明。
-- [Harness 能力源码](../src/pydantic_ai_harness/pydantic_ai_harness/)：每个能力有独立实现和 README。
-- [核心 Agent 源码](../pydantic_ai_slim/pydantic_ai/agent/__init__.py)：运行参数和工具注册。
-- [核心本地工作区源码](../pydantic_ai_slim/pydantic_ai/workspaces/local.py)：POSIX 限制、文件和命令后端。
-
-Harness 处于 0.x 版本阶段。本例按照当前仓库 API 编写，升级后应重新检查签名并运行本地模型示例。
+测试使用 FunctionModel，在进程内经过真实 Agent、工具与存储。本地 Ollama 实跑用于验证该模型与工具协议的实际配合。

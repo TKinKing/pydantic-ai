@@ -1,5 +1,7 @@
 # 本地 Ollama Harness 示例
 
+要调试包含文件、Shell、计划、技能、记忆、子代理和持久化的完整流程，请先看 [综合示例](../harness_example/README.md) 和 [源码断点指南](../harness_example/DEBUGGING.md)。本目录保留 Windows 原生可运行的追问与恢复示例。
+
 在仓库根目录运行：
 
 ~~~powershell
