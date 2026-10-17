@@ -25,9 +25,12 @@ DeepSeek 使用仓库已支持的 `deepseek-v4-flash` 别名，并关闭深度�
 ~~~powershell
 just harness-test   # 运行本目录全部测试，不需要启动 Ollama 或提供真实 API Key
 just harness        # 执行完整例子，按 Key 选择 DeepSeek 或本地 Ollama
+just mcp-server     # 只启动 MCP stdio 服务，提供 mcp_add 和 mcp_echo，不运行 Harness 或模型
 ~~~
 
-两条命令都使用当前机器的 Python：Windows 为 `.venv/Scripts/python.exe`，Linux/macOS 为 `.venv/bin/python`。`HARNESS_PYTHON` 环境变量可为 just 命令指定其他本地解释器。
+这些命令都使用当前机器的 Python：Windows 为 `.venv/Scripts/python.exe`，Linux/macOS 为 `.venv/bin/python`。`HARNESS_PYTHON` 环境变量可为 just 命令指定其他本地解释器。
+
+`just mcp-server` 启动后等待标准输入中的 MCP 请求，没有提示符，也不监听 HTTP 端口；按 Ctrl+C 停止。MCP 客户端可在仓库根目录以 `just` 为命令、`["mcp-server"]` 为参数启动它。`just harness` 仍会自动启动自己的 MCP 子进程，不会连接另一个终端里手动启动的服务。
 
 VS Code 的 **终端 → 运行任务** 也提供 `just harness`、`just harness-test`。完整例子不打印运行日志；断点中检查变量，运行后的消息、报告和历史窗口保存在 `output/`。测试结果仍由 pytest 输出。
 
@@ -131,7 +134,7 @@ async def main() -> None:
 
 ### 6. MCP：工具的跨进程协议
 
-`main.py` 用 SDK 的 `FastMCP` 定义两个工具：`mcp_add`、`mcp_echo`。`create_mcp_capability()` 用当前 Python 启动同一个 `main.py` 的子进程，通过 `StdioTransport`、`MCPToolset` 和核心 `MCP` 能力注册到 Agent；`async with agent` 管理连接生命周期。子进程的 `--mcp-server` 是内部启动标记，用来只启动服务端，不是用户选择演示的模式参数。
+`main.py` 用 SDK 的 `FastMCP` 定义两个工具：`mcp_add`、`mcp_echo`。`create_mcp_capability()` 用当前 Python 启动同一个 `main.py` 的子进程，通过 `StdioTransport`、`MCPToolset` 和核心 `MCP` 能力注册到 Agent；`async with agent` 管理连接生命周期。`--mcp-server` 分支只运行服务端，`just mcp-server` 也通过该分支启动。
 
 完整流程实际调用 `mcp_add(7, 5)`，`run_mcp()` 还演示回显。MCP server 的 stdout 专供协议通信，不能随意 `print`。MCP 是连接工具的协议，RAG 是检索后生成回答的方式，二者也能组合：检索工具可以由 MCP server 提供。
 

@@ -18,6 +18,15 @@ harness:
 harness:
     @{{ quote(harness_python) }} -X utf8 -u -m harness_example.main
 
+# Run only the MCP stdio server; no model API or Ollama service is needed.
+[windows]
+mcp-server:
+    @& ./harness_example/run_ollama.ps1 -Task mcp-server; exit $LASTEXITCODE
+
+[unix]
+mcp-server:
+    @{{ quote(harness_python) }} -X utf8 -u -m harness_example.main --mcp-server
+
 # Run only the learning example tests; no model API or Ollama service is needed.
 [windows]
 harness-test:
