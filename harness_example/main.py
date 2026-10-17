@@ -1,6 +1,5 @@
 """本地 Ollama 的完整 Harness 学习流程：python -m harness_example.main."""
 
-import argparse
 import asyncio
 import json
 from collections.abc import Callable
@@ -53,10 +52,8 @@ from pydantic_ai_harness.system_reminders import Reminder
 from pydantic_ai_harness.tool_output_limits import Band, Truncate
 
 if __package__:
-    from .offline_model import make_offline_model, make_reviewer_model
     from .tool_descriptions import TOOL_DESCRIPTIONS
 else:
-    from offline_model import make_offline_model, make_reviewer_model
     from tool_descriptions import TOOL_DESCRIPTIONS
 
 OLLAMA_MODEL = getenv('OLLAMA_MODEL', 'qwen2.5-harness:14b-16k')
@@ -417,29 +414,11 @@ async def run_example(
 
 
 async def main() -> None:
-    """命令行和 VS Code 使用同一个入口."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode', choices=['guided', 'free', 'offline'], default='guided')
-    parser.add_argument('--workspace', type=Path, default=WORKSPACE)
-    parser.add_argument('--no-resume', action='store_true', help='只运行教学流程，不执行快照续接')
-    args = parser.parse_args()
+    """固定使用本地 Ollama，逐步执行完整流程并从快照续接."""
     if platform_name != 'posix':
         raise SystemExit('综合示例请用 WSL/Linux/macOS 运行，VS Code 选择 Python: Harness 完整流程 (Ollama / WSL)。')
-    model = None
-    reviewer_model = None
-    if args.mode == 'offline':
-        model = make_offline_model()
-        reviewer_model = make_reviewer_model()
-        print('[模式] 离线固定剧本；没有调用本地或云端模型。')
-    else:
-        print(f'[模式] {args.mode}；本地模型={OLLAMA_MODEL}；接口={OLLAMA_BASE_URL}')
-    await run_example(
-        workspace=args.workspace.resolve(),
-        model=model,
-        reviewer_model=reviewer_model,
-        guided=args.mode != 'free',
-        resume=not args.no_resume,
-    )
+    print(f'[本地调试] 模型={OLLAMA_MODEL}；接口={OLLAMA_BASE_URL}')
+    await run_example()
 
 
 if __name__ == '__main__':

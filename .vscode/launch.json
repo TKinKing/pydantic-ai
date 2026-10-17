@@ -18,24 +18,6 @@
             }
         },
         {
-            "name": "Python: Harness 完整流程 (离线断点 / WSL)",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "harness_example.main",
-            "cwd": "${workspaceFolder}",
-            "python": "${input:harnessWslPython}",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "envFile": "${workspaceFolder}/.env",
-            "env": {
-                "PYTHONUTF8": "1"
-            },
-            "args": [
-                "--mode",
-                "offline"
-            ]
-        },
-        {
             "name": "Python: Harness 进阶组件 (Ollama)",
             "type": "debugpy",
             "request": "launch",

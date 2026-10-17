@@ -1,6 +1,6 @@
 # 本地 Harness 完整学习示例
 
-**主入口：[main.py](main.py)。默认用本地 Ollama 逐步执行工具，串起 20 个通用 Harness 能力。**
+**主入口：[main.py](main.py)。固定用本地 Ollama 逐步执行工具，串起 20 个通用 Harness 能力。**
 
 VS Code 用 **Remote - WSL** 打开仓库，选择 **Python: Harness 完整流程 (Ollama / WSL)**，按 F5。断点顺序见 [源码调试指南](DEBUGGING.md)。
 
@@ -10,17 +10,11 @@ VS Code 用 **Remote - WSL** 打开仓库，选择 **Python: Harness 完整流�
 
 ~~~powershell
 .\harness_example\run_ollama.ps1
-# 不请求模型，固定决策，反复调试真实工具链：
-.\harness_example\run_ollama.ps1 -Mode offline
 ~~~
 
 脚本使用本机已有 WSL Python，并自动获取 Windows 的 WSL 网关地址。`OLLAMA_MODEL`、`OLLAMA_BASE_URL` 可覆盖模型和接口。默认沿用 `qwen2.5-harness:14b-16k`，主代理和审阅子代理均连接本地 Ollama。
 
-| 模式 | 命令 | 行为 |
-| --- | --- | --- |
-| 逐步导览，默认 | `python -m harness_example.main` | 每步缩小可用工具范围，模型生成参数，框架执行工具 |
-| 自主运行 | `python -m harness_example.main --mode free` | 同一组能力，模型自行选择工具，不保证覆盖每一步 |
-| 离线断点 | `python -m harness_example.main --mode offline` | FunctionModel 固定决策，真实工具、护栏、文件和存储仍实际执行 |
+入口不读取命令行参数。直接运行 `python -m harness_example.main`，每步缩小可用工具范围，由本地模型生成参数、框架执行工具，完成后从快照续接。工作区固定为 `harness_example/output/demo/`。
 
 完整流程需要 POSIX。当前 `LocalWorkspaceBackend` 依赖 POSIX 进程组，Windows 原生 Python 会收到运行环境提示。Windows 原生可运行 [追问与恢复示例](../pydantic_harness_example/README.md) 和 [最小 Planning 示例](quickstart.py)。
 
@@ -64,14 +58,14 @@ Ollama 在 WSL 内或使用镜像网络时，可使用 `http://localhost:11434/v
 | [main.py](main.py) 的 `Walkthrough` | 工具范围、执行成功后推进、提前输出重试 |
 | [main.py](main.py) 的 `run_example` | 保存快照、读回历史、真正发起下一轮 run |
 | [tool_descriptions.py](tool_descriptions.py) | 内置工具的中文用途，保留上游参数模式 |
-| [offline_model.py](offline_model.py) | 固定模型决策，验证普通与流式执行路径 |
+| [offline_model.py](offline_model.py) | 自动化测试使用的固定模型决策，验证普通与流式执行路径 |
 | [advanced.py](advanced.py) | CodeMode、DynamicWorkflow、BackgroundTools 独立实验 |
 
 ## 完整流程覆盖什么
 
 导览串联：写计划、列目录、读资料、加载技能、追问、计算进度、Shell、长工具输出、子代理、写/读/搜记忆、搜对话、写报告、完成计划、读计划。
 
-导览只是教学控制器：每次请求末尾明确提示当前步骤，模型仍生成工具参数，工具仍由 Agent 校验和执行。教学提示只用于当前请求，不累积进持久历史。过早输出最终答案会进入重试；工具成功后才能推进。自由模式取消步骤限制。
+导览只是教学控制器：每次请求末尾明确提示当前步骤，模型仍生成工具参数，工具仍由 Agent 校验和执行。教学提示只用于当前请求，不累积进持久历史。过早输出最终答案会进入重试；工具成功后才能推进。
 
 | 能力组 | Harness 组件 | 可观察行为 |
 | --- | --- | --- |
