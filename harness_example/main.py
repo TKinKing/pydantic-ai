@@ -193,39 +193,64 @@ def build_agent(
         # 本地模型可能在步骤间先输出确认文字；输出重试是整次 run 的累计预算。
         retries={'tools': 8, 'output': len(LESSON_STEPS) + 2 if guided else 8},
         capabilities=[
-            create_local_workspace(workspace),  # Windows 原生适配；POSIX 使用内置 LocalWorkspace。
-            Walkthrough(plan_store=plan_store, guided=guided),  # 自定义教学能力，不计入内置 Harness 能力。
+            # 为文件、技能和记忆提供同一个工作目录；Windows 用原生适配，POSIX 用内置 LocalWorkspace。
+            create_local_workspace(workspace),
+            # 自定义教学能力：限制当前可调用的工具，核对执行结果，成功后才推进到下一步。
+            Walkthrough(plan_store=plan_store, guided=guided),
+            # 模型请求前检查用户输入；本例遇到“示例禁止”会直接终止运行。
             InputGuardrail(guard=input_guard),
+            # 将运行事件、工具执行状态和消息快照写入 store，供历史搜索和后续对话续接。
             StepPersistence(store=store),
+            # 压缩前暂存 Planning 生成的临时计划提醒，留给末尾的 Hooks 恢复。
             Hooks(before_model_request=preserve_plan_reminder),
+            # 请求前检查历史中模型回复的正文和工具参数；单个内容超过 12,000 字符时保留头尾。
             ClampOversizedMessages(max_part_chars=12_000),
+            # 历史达到消息数阈值后，用占位文字替换旧工具结果，保留最近 3 对调用与结果。
             ClearToolResults(max_messages=12, keep_pairs=3, placeholder='[旧工具结果已清理，可搜索历史]'),
+            # 消息过多时裁剪历史，以最近 16 条为保留窗口，并维护工具调用与结果的配对。
             SlidingWindowCompaction(max_messages=24, keep_messages=16),
+            # 按用户隔离长期笔记，提供读写和搜索工具；注入模型的记忆受 600 token 预算限制。
             Memory(FileStore('memory'), namespace=lambda ctx: ctx.deps.user_id, max_tokens=600),
+            # 让模型列目录、读取资料和写入报告；这些工具实际操作上面配置的工作区。
             FileSystem(tools=['read_file', 'write_file', 'list_directory'], content_hashes=False),
-            create_shell(),  # Windows 使用原生 echo 教学工具；POSIX 使用 Harness Shell。
+            # 提供受限的 echo 命令实验；Windows 用原生适配，POSIX 用 Harness Shell。
+            create_shell(),
+            # 发现并加载工作区中的 AGENTS.md / CLAUDE.md，将项目约定作为指令提供给模型。
             RepoContext(),
+            # 从 skills 目录发现技能，先展示简介，再由模型调用 load_capability 加载正文。
             Skills('skills'),
-            KnowledgeRAG(),  # 自定义能力：工具通过 deps 调用应用提供的检索服务。
-            create_mcp_capability(),  # 核心 MCP 能力：启动并连接独立的 stdio 服务进程。
-            # 任务拆解能力直接挂在这个 Agent 上：父子任务、依赖、状态和计划提醒。
+            # 自定义检索能力：search_knowledge 通过 deps 调用检索服务，返回资料及来源。
+            KnowledgeRAG(),
+            # 接入核心 MCP 能力；进入 async with agent 时连接服务子进程，主流程调用 mcp_add。
+            create_mcp_capability(),
+            # 让模型拆解父子任务、设置依赖并更新状态；计划存入 plan_store，并随请求提供提醒。
             Planning(
                 store=plan_store,
                 enable_subtasks=True,
                 tools=['write_plan', 'read_plan', 'set_dependency', 'get_available_tasks', 'update_task_status'],
             ),
+            # 每 4 次模型请求生成一次周期提醒；当前组合中会被后续压缩覆盖，尚未到达模型。
             SystemReminders(reminders=[Reminder('保持中文解释，完成后更新计划并给出总结。', interval=4)]),
+            # 提供向用户提问的工具；本例的 answer_user 自动选第一项，不等待真人输入。
             AskUser(answerer=answer_user),
+            # 让主 Agent 把概念检查委派给独立的 reviewer，并限制调用次数和委派深度。
             SubAgents(agents=[SubAgent(reviewer, description='检查学习总结的概念', max_calls=3)], max_depth=2),
+            # 从 StepPersistence 快照搜索当前对话的历史，找回已被压缩或移出窗口的内容。
             ConversationSearch(SnapshotHistorySource(store), scope='conversation'),
+            # 执行工具前检查调用；本例拒绝删除记忆，以及向 report.md 之外的文件写入。
             ToolGuardrail(guard=tool_guard),
+            # 工具结果交给模型前做长度限制；long_reference 超过 500 字符时截断到最多 350 字符。
             ToolOutputLimits(per_tool={'long_reference': [Band(over=500, action=Truncate(max_chars=350))]}),
-            # 接近硬预算才提示收尾，避免教学流程中途收到减少工具调用的竞争指令。
+            # 请求用量达到 64 次预算的 80% 时提示收尾；顺利完成教学流程通常不会触发警告。
             WarnNearLimits(max_iterations=REQUEST_LIMIT, warning_threshold=0.8),
+            # 估算模型请求的上下文占用并发出事件；本例由 record_context 订阅，不主动压缩历史。
             ReportContextUsage(context_window=1_000_000 if model.system == 'deepseek' else 16_384),
+            # 校验最终回答；本例要求字符串中包含“总结”，不符合时让模型重试。
             OutputGuardrail(guard=output_guard),
+            # 每次准备工具时替换为中文描述，并记录可用工具定义；保留原参数模式和执行逻辑。
             PrepareTools(chinese_tools),
-            Hooks(before_model_request=guide_current_step),  # 当前步骤位于记忆、计划和提醒之后。
+            # 压缩后恢复暂存的计划提醒，再追加当前教学步骤；这两种临时提醒不写入持久历史。
+            Hooks(before_model_request=guide_current_step),
         ],
     )
 
