@@ -4,6 +4,28 @@
 其余示例实现都在下方同一文件；main() 默认执行完整导览、跨会话记忆和历史压缩。
 """
 
+# 运行入口与阅读路线：
+# - VS Code 选择 Debug Harness 后按 F5：直接启动本模块，可在下面的函数中设置断点。
+# - just harness：正常运行；just harness-debug：监听 127.0.0.1:5678，等待调试器附加。
+# - just mcp-server：只运行文件末尾的 --mcp-server 分支，等待 stdio 协议请求。
+#
+# 主进程调用链：
+# __main__ -> asyncio.run(main()) -> create_model() -> run_example()
+# run_example() 内部：准备工作区 -> build_agent() -> async with agent -> agent.run()
+#                    -> 保存消息并读取快照 -> 新一轮 agent.run() 续接 -> 导出运行证据。
+# main() 随后继续执行 demonstrate_memory() 和 demonstrate_history()，展示跨会话记忆与历史压缩。
+#
+# agent.run() 内的循环：
+# 1. 框架加载指令和记忆、校验输入，并按生命周期调度 capabilities；不是逐项执行一次的流水线。
+# 2. Walkthrough 选定当前教学步骤，准备工具描述和请求上下文，再请求模型。
+# 3. 模型返回工具名与参数；框架校验参数、执行护栏和工具，将结果交回后续模型请求。
+# 4. Walkthrough 核对结果后推进步骤，StepPersistence 在可续接的节点边界保存消息快照。
+# 5. 重复模型与工具循环，完成所有教学步骤后生成最终总结，并通过输出校验。
+#
+# MCP 跨进程链：主进程的 MCP 客户端 -> 启动同一文件并传入 --mcp-server
+#              -> 子进程 server.run(transport='stdio') -> mcp_add() -> 将结果返回主进程。
+# 服务端断点直接放在 mcp_add()；F11 不会跨 RPC 跳转，Debug Harness 已启用子进程调试。
+
 from __future__ import annotations
 
 import asyncio
@@ -717,6 +739,7 @@ def mcp_echo(text: str) -> str:
 
 def create_mcp_capability() -> MCP[object]:
     """构造核心 MCP 能力；不依赖业务 deps，可直接加入完整 Harness 示例."""
+    # 此处只配置启动命令；进入 async with agent 后才启动子进程并建立 MCP 连接。
     transport = StdioTransport(
         command=sys.executable,
         args=[str(Path(__file__).resolve()), '--mcp-server'],
@@ -1633,22 +1656,30 @@ async def run_example(
     resume: bool = True,
 ) -> AgentRunResult[str]:
     """运行、保存证据，再从磁盘快照发起真正的下一轮模型请求."""
+    # 先准备 lesson.txt、AGENTS.md 和技能文件，使 Agent 启动时能发现并读取教学资料。
     prepare_workspace(workspace)
+    # 组装主 Agent、reviewer、能力和存储；此时尚未向模型发请求。
     agent, store = build_agent(workspace=workspace, model=model, reviewer_model=reviewer_model, guided=guided)
+    # deps 承载本次业务状态和检索服务，由框架传给工具及钩子；模型只提供工具参数。
     deps = LearningDeps()
     if retrieval is not None:
         deps.retrieval = retrieval
     limits = UsageLimits(request_limit=REQUEST_LIMIT, tool_calls_limit=len(LESSON_STEPS) + 8)
+    # 建立并持有 MCP 等资源；整个 with 块退出时关闭连接并清理服务子进程。
     async with agent:
+        # 默认 guided=True：按 LESSON_STEPS 推进 29 步，真实执行工具，再生成总结。
         result = await agent.run(
             '学习 Harness，完成资料阅读、计划、提问、审阅、记忆和 report.md，并给出总结。',
             deps=deps,
             usage_limits=limits,
         )
+        # messages.json 便于直接查看；续接使用的是 StepPersistence 已写入 store 的消息快照。
         (workspace / 'messages.json').write_bytes(result.all_messages_json())
         runs = await store.list_runs(conversation_id=result.conversation_id)
         history = await continue_run(store, run_id=runs[-1].run_id)
         if resume:
+            # 发起新的 run，沿用对话 ID、历史、业务状态和累计用量；不是恢复 Python 函数执行位置。
+            # continuing 让教学能力只允许总结已有结果，避免再次执行工具。
             deps.continuing = True
             result = await agent.run(
                 '请根据刚才的历史，用一段中文总结你已经完成的工作，不重复执行工具。',
@@ -1659,6 +1690,7 @@ async def run_example(
                 usage_limits=limits,
             )
             (workspace / 'continued_messages.json').write_bytes(result.all_messages_json())
+    # MCP 生命周期已结束；导出工具定义、执行证据和计划，供调试后检查实际完成了哪些行为。
     definitions = {
         name: {'说明': tool.description, '参数模式': tool.parameters_json_schema} for name, tool in deps.tools.items()
     }
@@ -1686,16 +1718,20 @@ async def run_example(
 
 async def main() -> None:
     """根据 API Key 选择模型，逐步执行完整流程并从快照续接."""
+    # 有 DeepSeek Key 时使用 DeepSeek，否则使用本地 Ollama；后面的三个演示共用此模型配置。
     model = create_model()
     await run_example(model=model)
+    # 后续专题使用独立目录：先展示跨会话记忆，再展示历史读写、滑窗裁剪和增量摘要。
     study_workspace = WORKSPACE.parent / 'memory-history'
     await demonstrate_memory(workspace=study_workspace, model=model)
     await demonstrate_history(workspace=study_workspace, model=model)
 
 
 if __name__ == '__main__':
-    # 这是 MCP 客户端启动子进程使用的内部角色；F5/just 默认不传参数。
+    # 同一文件按参数选择角色，每个进程只执行一个分支。
     if sys.argv[1:] == ['--mcp-server']:
+        # MCP 客户端自动启动的子进程，以及 just mcp-server，都走这里；不会进入 main()。
         server.run(transport='stdio')
     else:
+        # Debug Harness / F5 和 just harness 不传角色参数，从这里启动完整主流程。
         asyncio.run(main())
