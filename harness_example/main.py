@@ -214,64 +214,120 @@ def build_agent(
         model_settings={'temperature': 0.2, 'max_tokens': 1024},
         # 本地模型可能在步骤间先输出确认文字；输出重试是整次 run 的累计预算。
         retries={'tools': 8, 'output': len(LESSON_STEPS) + 2 if guided else 8},
+        # 以下“本例”描述默认 guided=True 的完整导览；条件分支另行注明，不代表注册后就全部触发。
+        # “调用”给出工具名或钩子入口，调试时可直接在对应实现打断点。
         capabilities=[
-            # 为文件、技能和记忆提供同一个工作目录；Windows 用原生适配，POSIX 用内置 LocalWorkspace。
+            # 用途：为文件、技能和记忆提供统一工作目录及访问后端。
+            # 调用：框架通过 get_workspace() 取得后端，工具再通过 ctx.workspace 读写。
+            # 本例：实际访问 output/demo；Windows 走 NativeWorkspace，POSIX 走内置 LocalWorkspace。
             create_local_workspace(workspace),
-            # 自定义教学能力：限制当前可调用的工具，核对执行结果，成功后才推进到下一步。
+            # 用途：自定义教学引导，要求模型按 LESSON_STEPS 完成任务，不能只口头声称完成。
+            # 调用：get_model_settings() 限定工具，before_tool_execute()/after_tool_execute() 核对调用及结果。
+            # 本例：成功执行后推进 29 步并记录计划状态；错误参数、护栏拒绝和失败工具不会算完成。
             Walkthrough(plan_store=plan_store, guided=guided),
-            # 模型请求前检查用户输入；本例遇到“示例禁止”会直接终止运行。
+            # 用途：在输入进入模型前执行应用自己的校验规则。
+            # 调用：wrap_model_request() 在本次 run 的首次模型调用前执行 input_guard()。
+            # 本例：正常学习请求通过；输入含“示例禁止”才抛出 InputBlocked，默认导览不走拒绝分支。
             InputGuardrail(guard=input_guard),
-            # 将运行事件、工具执行状态和消息快照写入 store，供历史搜索和后续对话续接。
+            # 用途：持久化运行事件、工具执行状态和可续接的消息快照。
+            # 调用：before_run() 登记运行，工具钩子记录状态，after_node_run() 在工具结果齐全时保存快照。
+            # 本例：实际写入 steps/；ConversationSearch 读取快照，continue_run() 取回历史供新一轮总结。
             StepPersistence(store=store),
-            # 压缩前暂存 Planning 生成的临时计划提醒，留给末尾的 Hooks 恢复。
+            # 用途：避免 Planning 的临时计划提醒被后续压缩重建请求时丢失。
+            # 调用：before_model_request 调用 preserve_plan_reminder()，暂存到 ctx.deps.plan_reminder。
+            # 本例：计划建立后暂存当次提醒；末尾的 guide_current_step() 再恢复，不保存周期提醒。
             Hooks(before_model_request=preserve_plan_reminder),
-            # 请求前检查历史中模型回复的正文和工具参数；单个内容超过 12,000 字符时保留头尾。
+            # 用途：缩短历史中超长的模型回复正文和工具调用参数，保留头尾内容。
+            # 调用：before_model_request() 每轮检查；_clamp() 对超过 12,000 字符的内容尝试截断。
+            # 本例：离线导览执行了检查但没有超长内容；long_reference 的工具结果由 ToolOutputLimits 处理。
             ClampOversizedMessages(max_part_chars=12_000),
-            # 历史达到消息数阈值后，用占位文字替换旧工具结果，保留最近 3 对调用与结果。
+            # 用途：保留工具调用记录，但用短占位文字替换旧结果正文，减少重复传给模型的内容。
+            # 调用：before_model_request() 在历史超过 12 条消息时调用 compact()，保留最近 3 对工具结果。
+            # 本例：导览后段实际出现“旧工具结果已清理”占位文字，原结果可从之前保存的快照检索。
             ClearToolResults(max_messages=12, keep_pairs=3, placeholder='[旧工具结果已清理，可搜索历史]'),
-            # 消息过多时裁剪历史，以最近 16 条为保留窗口，并维护工具调用与结果的配对。
+            # 用途：控制传给模型的历史窗口，同时维护工具调用与返回结果的配对。
+            # 调用：before_model_request() 在历史超过 24 条消息时裁剪，以最近 16 条为保留窗口。
+            # 本例：29 步导览实际触发裁剪；快照中的消息数量会下降，不是做语义摘要。
             SlidingWindowCompaction(max_messages=24, keep_messages=16),
-            # 按用户隔离长期笔记，提供读写和搜索工具；注入模型的记忆受 600 token 预算限制。
+            # 用途：按 user_id 隔离长期笔记，向模型提供可跨 run 使用的记忆。
+            # 调用：before_model_request() 注入预算内笔记；模型调用 write_memory/read_memory/search_memory。
+            # 本例：实际把 Harness 学习结论写入 memory 下的 MEMORY.md，再读回和搜索；注入预算为 600 token。
             Memory(FileStore('memory'), namespace=lambda ctx: ctx.deps.user_id, max_tokens=600),
-            # 让模型列目录、读取资料和写入报告；这些工具实际操作上面配置的工作区。
+            # 用途：向模型开放工作区内的文件操作工具。
+            # 调用：模型请求 list_directory/read_file/write_file，FileSystemToolset 通过工作区后端执行。
+            # 本例：实际列出目录、读取 lesson.txt、写入 report.md；写入路径还要经过 ToolGuardrail。
             FileSystem(tools=['read_file', 'write_file', 'list_directory'], content_hashes=False),
-            # 提供受限的 echo 命令实验；Windows 用原生适配，POSIX 用 Harness Shell。
+            # 用途：演示模型通过工具在工作目录执行受限命令。
+            # 调用：模型调用 run_command；Windows 走 NativeShell 和 run_echo()，POSIX 走 Harness Shell。
+            # 本例：实际执行 echo harness-demo 并返回结果；只开放 echo，不演示任意 Shell 命令。
             create_shell(),
-            # 发现并加载工作区中的 AGENTS.md / CLAUDE.md，将项目约定作为指令提供给模型。
+            # 用途：把 AGENTS.md / CLAUDE.md 中的项目约定加入模型指令。
+            # 调用：before_run() 加载初始目录上下文，get_instructions() 提供内容；文件遍历可补充子目录指令。
+            # 本例：读取 prepare_workspace() 创建的 AGENTS.md，提供中文回答和报告路径约定。
             RepoContext(),
-            # 从 skills 目录发现技能，先展示简介，再由模型调用 load_capability 加载正文。
+            # 用途：发现工作区技能，先向模型展示简介，再按需注入完整操作指引。
+            # 调用：for_run() 扫描 skills，模型调用 load_capability(id='study-notes') 激活技能。
+            # 本例：实际加载 SKILL.md 中的学习步骤；Markdown 是指令，不会自动执行成 Python 代码。
             Skills('skills'),
-            # 自定义检索能力：search_knowledge 通过 deps 调用检索服务，返回资料及来源。
+            # 用途：自定义 RAG 能力，让模型从应用提供的知识库检索证据。
+            # 调用：模型调用 search_knowledge，工具执行 ctx.deps.retrieval.search() 并返回资料及来源。
+            # 本例：实际搜索 Harness；默认使用内存关键词检索，传入 retrieval 时可换成外部服务。
             KnowledgeRAG(),
-            # 接入核心 MCP 能力；进入 async with agent 时连接服务子进程，主流程调用 mcp_add。
+            # 用途：通过 MCP 协议把独立服务进程的工具接入 Agent。
+            # 调用：async with agent 启动同文件的 --mcp-server 子进程，MCPToolset 经 stdio 发送工具请求。
+            # 本例：实际执行 mcp_add(7, 5) 并得到 12；mcp_echo 已注册但主导览未调用，退出 with 后清理连接。
             create_mcp_capability(),
-            # 让模型拆解父子任务、设置依赖并更新状态；计划存入 plan_store，并随请求提供提醒。
+            # 用途：管理父子任务、依赖和进度，将当前计划提供给模型；不会自动执行计划中的业务工作。
+            # 调用：模型调用下面列出的五种计划工具；wrap_model_request() 加入临时计划提醒。
+            # 本例：实际创建 study 及三个子任务，验证 blocked/解锁/完成，写入 plan.db 并读回最终计划。
             Planning(
                 store=plan_store,
                 enable_subtasks=True,
                 tools=['write_plan', 'read_plan', 'set_dependency', 'get_available_tasks', 'update_task_status'],
             ),
-            # 每 4 次模型请求生成一次周期提醒；当前组合中会被后续压缩覆盖，尚未到达模型。
+            # 用途：按请求次数向模型追加周期性提醒，降低长流程偏离目标的可能。
+            # 调用：wrap_model_request() 计数，每第 4 次请求生成提醒并追加到当次请求。
+            # 本例：提醒生成分支已触发，但随后被压缩钩子重建的请求覆盖；当前模型实际收不到该提醒。
             SystemReminders(reminders=[Reminder('保持中文解释，完成后更新计划并给出总结。', interval=4)]),
-            # 提供向用户提问的工具；本例的 answer_user 自动选第一项，不等待真人输入。
+            # 用途：让 Agent 通过结构化问题取得用户选择。
+            # 调用：模型调用 ask_user_question，工具把问题交给 answer_user()，再将回答返回模型。
+            # 本例：实际询问学习方式；answer_user 自动选第一项，演示调用链而不等待真人输入。
             AskUser(answerer=answer_user),
-            # 让主 Agent 把概念检查委派给独立的 reviewer，并限制调用次数和委派深度。
+            # 用途：把独立子任务委派给指定子 Agent，限制委派次数和递归深度。
+            # 调用：模型调用 delegate_task(agent_name='reviewer', ...)，框架运行 reviewer 并返回审阅结果。
+            # 本例：实际完成一次概念审阅；子 Agent 使用独立对话，结果由主 Agent 接收。
             SubAgents(agents=[SubAgent(reviewer, description='检查学习总结的概念', max_calls=3)], max_depth=2),
-            # 从 StepPersistence 快照搜索当前对话的历史，找回已被压缩或移出窗口的内容。
+            # 用途：检索持久化的旧对话，使模型能找回已被清理或移出窗口的内容。
+            # 调用：模型调用 search_conversation_history，SnapshotHistorySource 读取 store 中的消息快照。
+            # 本例：实际搜索 Harness，范围限定为当前 conversation；搜索对话记录，不是 Memory 笔记。
             ConversationSearch(SnapshotHistorySource(store), scope='conversation'),
-            # 执行工具前检查调用；本例拒绝删除记忆，以及向 report.md 之外的文件写入。
+            # 用途：在工具产生实际操作前检查工具名称和参数，拒绝不允许的调用。
+            # 调用：before_tool_execute() 执行 tool_guard()，被拒绝的调用不会进入工具函数。
+            # 本例：正常导览全部放行；删除记忆或写 report.md 以外的路径才触发拒绝，测试另有覆盖。
             ToolGuardrail(guard=tool_guard),
-            # 工具结果交给模型前做长度限制；long_reference 超过 500 字符时截断到最多 350 字符。
+            # 用途：限制刚生成的工具结果大小，避免大量正文进入后续模型请求。
+            # 调用：after_tool_execute() 检查结果，对 long_reference 超过 500 字符的正文执行 Truncate。
+            # 本例：实际调用 long_reference，返回给模型的结果截断到最多 350 字符并带截断标记。
             ToolOutputLimits(per_tool={'long_reference': [Band(over=500, action=Truncate(max_chars=350))]}),
-            # 请求用量达到 64 次预算的 80% 时提示收尾；顺利完成教学流程通常不会触发警告。
+            # 用途：接近请求预算时提醒模型收尾；提示本身不代替 UsageLimits 的硬限制。
+            # 调用：before_model_request() 检查累计请求数，达到 REQUEST_LIMIT 的 80% 时注入警告。
+            # 本例：顺利的离线导览未告警；64 次预算下已用至少 52 次才触发，模型重试可能使其达到阈值。
             WarnNearLimits(max_iterations=REQUEST_LIMIT, warning_threshold=0.8),
-            # 估算模型请求的上下文占用并发出事件；本例由 record_context 订阅，不主动压缩历史。
+            # 用途：报告上下文窗口占用，供界面或监控展示；此能力不负责压缩历史。
+            # 调用：before_model_request() 计算用量并发出 ContextUsageEvent，由 record_context() 订阅。
+            # 本例：实际累加 deps.context_events，并导出到 coverage.json，便于核对请求阶段是否经过报告器。
             ReportContextUsage(context_window=1_000_000 if model.system == 'deepseek' else 16_384),
-            # 校验最终回答；本例要求字符串中包含“总结”，不符合时让模型重试。
+            # 用途：按应用规则检查最终输出，不满足要求时请求模型重新回答。
+            # 调用：after_output_process() 执行 output_guard()；工具中间结果不作为最终回答校验。
+            # 本例：包含“总结”的字符串通过；不满足时重试，是否走重试分支取决于模型实际输出。
             OutputGuardrail(guard=output_guard),
-            # 每次准备工具时替换为中文描述，并记录可用工具定义；保留原参数模式和执行逻辑。
+            # 用途：在工具提供给模型前统一调整工具描述，保留原来的参数模式和执行逻辑。
+            # 调用：prepare_tools() 调用 chinese_tools()，用 TOOL_DESCRIPTIONS 中的中文说明替换描述。
+            # 本例：实际修改工具定义并存入 deps.tools；结束后导出 tools.json，此步骤不执行工具。
             PrepareTools(chinese_tools),
-            # 压缩后恢复暂存的计划提醒，再追加当前教学步骤；这两种临时提醒不写入持久历史。
+            # 用途：让模型在压缩后仍看到当前计划和必须执行的教学步骤。
+            # 调用：末尾的 before_model_request 调用 guide_current_step()，恢复暂存的计划提醒并追加步骤要求。
+            # 本例：每轮推进导览，续接时停止追加教学步骤；两种提醒不写入持久历史，也不恢复周期提醒。
             Hooks(before_model_request=guide_current_step),
         ],
     )
